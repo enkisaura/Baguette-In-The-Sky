@@ -1,0 +1,165 @@
+"""
+Functions for time conversions
+"""
+
+__authors__ = ("Enki SAURA")
+__contact__ = ("esaura@ikosconsulting.com")
+__copyright__ = "IKOS"
+__date__ = "12/02/2025"
+__version__ = "0.0.1"
+
+from pandas import Timestamp, Timedelta
+import math
+
+# Define GPS epoch (January 6, 1980)
+GPS_EPOCH = Timestamp('1980-01-06T00:00:00', tz='UTC')
+
+# List of UTC leap seconds (dates when they were introduced)
+LEAP_SECONDS = [
+    Timestamp("1981-06-30T23:59:59", tz='UTC'),
+    Timestamp("1982-06-30T23:59:59", tz='UTC'),
+    Timestamp("1983-06-30T23:59:59", tz='UTC'),
+    Timestamp("1985-06-30T23:59:59", tz='UTC'),
+    Timestamp("1987-12-31T23:59:59", tz='UTC'),
+    Timestamp("1989-12-31T23:59:59", tz='UTC'),
+    Timestamp("1990-12-31T23:59:59", tz='UTC'),
+    Timestamp("1992-06-30T23:59:59", tz='UTC'),
+    Timestamp("1993-06-30T23:59:59", tz='UTC'),
+    Timestamp("1994-06-30T23:59:59", tz='UTC'),
+    Timestamp("1995-12-31T23:59:59", tz='UTC'),
+    Timestamp("1997-06-30T23:59:59", tz='UTC'),
+    Timestamp("1998-12-31T23:59:59", tz='UTC'),
+    Timestamp("2005-12-31T23:59:59", tz='UTC'),
+    Timestamp("2008-12-31T23:59:59", tz='UTC'),
+    Timestamp("2012-06-30T23:59:59", tz='UTC'),
+    Timestamp("2015-06-30T23:59:59", tz='UTC'),
+    Timestamp("2016-12-31T23:59:59", tz='UTC')
+]
+
+
+def count_leap_seconds(dt: Timestamp) -> int:
+    """
+    Counts the number of leap seconds that have occurred up to a given UTC datetime.
+    :param dt: Time of the measurements
+    :return: Number of leap seconds
+    """
+    return sum(1 for leap in LEAP_SECONDS if dt > leap)
+
+
+# To timestamp
+def gps_time_ts_to_utc_ts(gps_time_ts: Timestamp) -> Timestamp:
+    """
+    Converts GPS time to UTC by adding leap seconds.
+    :param gps_time_ts: GPS time
+    :return: UTC time
+    """
+    # Get leap seconds
+    leap_seconds = count_leap_seconds(gps_time_ts)
+
+    # Convert to UTC by subtracting leap seconds
+    utc_time_ts = gps_time_ts - Timedelta(leap_seconds, 's')
+
+    return utc_time_ts
+
+
+def gps_time_to_timestamp(gps_time: float) -> Timestamp:
+    """
+    Convert GPS time in seconds to a pandas Timestamp (UTC), accounting for leap seconds.
+    Precision depends on the size of the float.
+    :param gps_time:  Time in seconds since the GPS epoch.
+    :return:  The corresponding UTC timestamp.
+    """
+    # Compute the GPS time in UTC by adding the GPS time to the GPS epoch
+    gps_time_ts = GPS_EPOCH + Timedelta(seconds=gps_time)
+
+    utc_time_ts = gps_time_ts_to_utc_ts(gps_time_ts)
+
+    return utc_time_ts
+
+
+def gps_week_to_timestamp(gps_week: int, tow: float) -> Timestamp:
+    """
+    Converts GPS time (week, seconds of week) to pandas.Timestamp.
+    Precision to the nanosecond (ns).
+    :param gps_week: GPS week number (since January 6, 1980).
+    :param tow: Seconds elapsed since the beginning of the week.
+    :return: The corresponding UTC timestamp.
+    """
+    # Compute GPS time (ignoring leap seconds). Time of week is converted to nanoseconds to preserve the best accuracy
+    # possible.
+    gps_time_ts = GPS_EPOCH + Timedelta(gps_week * 7 * 86400, 's') + Timedelta(int(tow * 1e9), 'ns')
+
+    utc_time_ts = gps_time_ts_to_utc_ts(gps_time_ts)
+
+    return utc_time_ts
+
+
+def timestamp_to_gps_time(ts: Timestamp) -> float:
+    """
+    Convert a UTC timestamp to GPS time (seconds since GPS epoch), accounting for leap seconds.
+    :param ts: The UTC timestamp to convert.
+    :return: GPS time in seconds.
+    """
+    # Ensure the timestamp is timezone-aware
+    ts = ts.tz_convert('UTC') if ts.tzinfo else ts.tz_localize('UTC')
+
+    # Compute total seconds since GPS epoch
+    gps_seconds = (ts - GPS_EPOCH).total_seconds()
+
+    # Add leap seconds to get GPS time
+    leap_seconds = count_leap_seconds(ts)
+    gps_time = gps_seconds + leap_seconds
+
+    return gps_time
+
+
+def timestamp_to_gps_tow(ts: Timestamp) -> (int, float):
+    """
+    Converts a UTC datetime to GPS Time of Week (TOW), considering leap seconds.
+    Precision to the nanosecond (ns).
+    :param ts: UTC datetime
+    :return: (gps week, time of week)
+    """
+    # Ensure the timestamp is timezone-aware
+    ts = ts.tz_convert('UTC') if ts.tzinfo else ts.tz_localize('UTC')
+
+    # Subtract leap seconds to convert UTC to GPS time
+    leap_seconds = count_leap_seconds(ts)
+    gps_time = ts + Timedelta(seconds=leap_seconds)
+
+    # Compute time difference from GPS epoch
+    delta = gps_time - GPS_EPOCH
+
+    # Compute GPS Week
+    gps_week = delta.days // 7
+
+    # Compute Time of Week (TOW)
+    tow = (delta.days % 7) * 86400 + delta.seconds + delta.microseconds / 1e6 + delta.nanoseconds / 1e9
+
+    return gps_week, tow
+
+
+def utc_to_gmst_radians(timestamp: Timestamp) -> float:
+    """
+    Converts a UTC timestamp to Greenwich Mean Sidereal Time (GMST) in radians.
+
+    :param timestamp: pd.Timestamp (must be in UTC)
+    :return: GMST in radians (0 - 2π)
+    """
+    # S'assurer que le timestamp est en UTC
+    timestamp = timestamp.tz_convert('UTC') if timestamp.tzinfo else timestamp.tz_localize('UTC')
+
+    # Calcul du Julian Date (JD)
+    unix_epoch_JD = 2440587.5  # JD de l'époque Unix (1970-01-01 00:00:00 UTC)
+    jd = unix_epoch_JD + timestamp.timestamp() / 86400  # 86400 sec/jour
+
+    # Calcul du temps en siècles juliens depuis J2000.0
+    T = (jd - 2451545.0) / 36525
+
+    # Formule GMST en secondes
+    GMST_sec = 67310.54841 + (876600 * 3600 + 8640184.812866) * T + 0.093104 * (T ** 2) - 6.2e-6 * (T ** 3)
+    GMST_sec = GMST_sec % 86400  # Reste du jour sidéral
+
+    # Conversion en radians (86400s = 2π rad)
+    GMST_rad = (GMST_sec / 86400) * (2 * math.pi)
+    return GMST_rad % (2 * math.pi)  # Retourne une valeur entre 0 et 2π
