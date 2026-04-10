@@ -12,7 +12,7 @@ __version__ = "0.0.1"
 import pandas as pd
 from pandas import Timestamp, Timedelta
 from tzlocal import get_localzone
-from bits.src.convert import time_conversion
+from .convert import time_conversion
 
 
 class GnssTimestamp:

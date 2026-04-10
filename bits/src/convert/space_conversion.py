@@ -13,10 +13,12 @@ import pyproj
 from pandas import Timedelta
 import numpy as np
 import math
-from bits.src.reference_frame_object import GnssTimestamp
-from bits.src.const import OMEGA_E
+from typing import Tuple
 
-def wgs_to_ecef(lat: float, lon: float, alt: float) -> tuple[float, float, float]:
+from ..reference_frame_object import GnssTimestamp
+from ..const import OMEGA_E
+
+def wgs_to_ecef(lat: float, lon: float, alt: float) -> Tuple[float, float, float]:
     """
     Converts WGS (EPSG:4326) coordinates to ECEF (EPSG:4978)
     :param lat: latitude (wgs)
@@ -29,7 +31,7 @@ def wgs_to_ecef(lat: float, lon: float, alt: float) -> tuple[float, float, float
     return x_ecef, y_ecef, z_ecef
 
 
-def ecef_to_wgs(x_ecef: float, y_ecef: float, z_ecef: float) -> tuple[float, float, float]:
+def ecef_to_wgs(x_ecef: float, y_ecef: float, z_ecef: float) -> Tuple[float, float, float]:
     """
     Converts ECEF (EPSG:4978) coordinates to WGS (EPSG:4326)
     :param x_ecef:
@@ -42,7 +44,7 @@ def ecef_to_wgs(x_ecef: float, y_ecef: float, z_ecef: float) -> tuple[float, flo
     return lat, lon, alt
 
 
-def rotate_ecef(x_ecef: float, y_ecef: float, z_ecef: float, delta_time: Timedelta) -> tuple[float, float, float]:
+def rotate_ecef(x_ecef: float, y_ecef: float, z_ecef: float, delta_time: Timedelta) -> Tuple[float, float, float]:
     """
     Rotate ECEF coordinates over a specified time interval to account for Earth's rotation. This is used to correct for
     Earth's rotation when converting from ECI to ECEF.
@@ -73,8 +75,7 @@ def rotate_ecef(x_ecef: float, y_ecef: float, z_ecef: float, delta_time: Timedel
     return ecef_prime[0][0], ecef_prime[1][0], ecef_prime[2][0],
 
 
-def ecef_to_eci_position(x_ecef: float, y_ecef: float, z_ecef: float, timestamp: GnssTimestamp) -> tuple[
-    float, float, float]:
+def ecef_to_eci_position(x_ecef: float, y_ecef: float, z_ecef: float, timestamp: GnssTimestamp) -> Tuple[float, float, float]:
     """
     Converts ECEF coordinates to ECI
     source: https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation
@@ -94,8 +95,7 @@ def ecef_to_eci_position(x_ecef: float, y_ecef: float, z_ecef: float, timestamp:
 
 
 def ecef_to_eci_velocity(x_ecef: float, y_ecef: float, z_ecef: float,
-                         vx_ecef: float, vy_ecef: float, vz_ecef: float, timestamp: GnssTimestamp) -> tuple[
-    float, float, float]:
+                         vx_ecef: float, vy_ecef: float, vz_ecef: float, timestamp: GnssTimestamp) -> Tuple[float, float, float]:
     """
     Converts velocity vectors from ECEF to ECI.
     source: https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation
@@ -116,8 +116,7 @@ def ecef_to_eci_velocity(x_ecef: float, y_ecef: float, z_ecef: float,
 
     return vx_eci, vy_eci, vz_eci
 
-def eci_to_ecef_position(x_eci: float, y_eci: float, z_eci: float, timestamp: GnssTimestamp) -> tuple[
-    float, float, float]:
+def eci_to_ecef_position(x_eci: float, y_eci: float, z_eci: float, timestamp: GnssTimestamp) -> Tuple[float, float, float]:
     """
     Converts ECI coordinates to ECEF
     source: https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation
@@ -135,7 +134,7 @@ def eci_to_ecef_position(x_eci: float, y_eci: float, z_eci: float, timestamp: Gn
 
     return x_ecef, y_ecef, z_ecef
 
-def pz_90_to_ecef(x_pz_90: float, y_pz_90: float, z_pz_90: float) -> tuple[float, float, float]:
+def pz_90_to_ecef(x_pz_90: float, y_pz_90: float, z_pz_90: float) -> Tuple[float, float, float]:
     """
     Converts GLONASS PZ90 coordinates to ECEF
     source: https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation
@@ -173,7 +172,7 @@ def pz_90_to_ecef(x_pz_90: float, y_pz_90: float, z_pz_90: float) -> tuple[float
     return ecef[0][0], ecef[1][0], ecef[2][0]
 
 
-def _ecef_to_enu_transition_matrix(approx_ecef: tuple[float, float, float]) -> np.array:
+def _ecef_to_enu_transition_matrix(approx_ecef: Tuple[float, float, float]) -> np.array:
     """
     x->Est
     y->North
@@ -213,7 +212,7 @@ def _ecef_to_enu_transition_matrix(approx_ecef: tuple[float, float, float]) -> n
     return p
 
 
-def ecef_to_enu(ancre_ecef: tuple[float, float, float], ecef_matrix: np.array) -> np.array:
+def ecef_to_enu(ancre_ecef: Tuple[float, float, float], ecef_matrix: np.array) -> np.array:
     """
     Compute East North Up coordinates from an ancre.
     :param ancre_ecef: Reference point coordinates (ECEF meters)
@@ -225,7 +224,7 @@ def ecef_to_enu(ancre_ecef: tuple[float, float, float], ecef_matrix: np.array) -
     return enu_matrix.transpose()
 
 
-def enu_to_ecef(ancre_ecef: tuple[float, float, float], enu_matrix: np.array) -> np.array:
+def enu_to_ecef(ancre_ecef: Tuple[float, float, float], enu_matrix: np.array) -> np.array:
     """
     Compute ECEF coordinates from East North Up coordinates from an ancre.
     :param ancre_ecef: Reference point coordinates (ECEF meters)

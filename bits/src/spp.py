@@ -19,11 +19,13 @@ import pandas as pd
 import numpy as np
 import math
 import warnings
-from bits.src.convert.space_conversion import ecef_to_wgs, ecef_to_enu, enu_to_spheric, enu_to_ecef, rotate_ecef
-from bits.src.corrections import get_clock_corrections, get_atmospheric_corrections
-from bits.src.sv_model import get_sv_states
-from bits.src import const
-from bits.src.utils import check_dataframe
+from typing import Tuple
+
+from .convert.space_conversion import ecef_to_wgs, ecef_to_enu, enu_to_spheric, enu_to_ecef, rotate_ecef
+from .corrections import get_clock_corrections, get_atmospheric_corrections
+from .sv_model import get_sv_states
+from . import const
+from .utils import check_dataframe
 
 class PositionEstimationError(Exception):
     """Exception raised for errors during position estimation."""
@@ -111,7 +113,7 @@ def get_geometry_matrix(pd_gnss_raw: pd.DataFrame, pd_approx_pos: pd.DataFrame) 
     return pd_geometry_matrix
 
 
-def _build_init_pd_gnss_pvt(pd_gnss_raw: pd.DataFrame, init_pvt: tuple[float, float, float]=(0, 0, 0)) -> pd.DataFrame:
+def _build_init_pd_gnss_pvt(pd_gnss_raw: pd.DataFrame, init_pvt: Tuple[float, float, float]=(0, 0, 0)) -> pd.DataFrame:
     """
     Builds a pd_gnss_pvt dataframe compatible with pd_gnss_raw with "init_pvt" as positions
     :param pd_gnss_raw: GNSS raw dataframe from BITS parser
@@ -233,7 +235,7 @@ def compute_speed_estimate(pr_rate: np.array, geometry_matrix: np.array, sv_spee
 
 
 def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: pd.DataFrame=None,
-                                 approx_pvt: tuple[float, float, float]=(0, 0, 0), convergence_tolerance=1e-7,
+                                 approx_pvt: Tuple[float, float, float]=(0, 0, 0), convergence_tolerance=1e-7,
                                  max_iteration: int=10) -> pd.DataFrame:
     """
     Computes position without any corrections.
@@ -382,7 +384,7 @@ def get_sv_el_az(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> pd.Dat
     return pd_gnss_raw
 
 
-def _correct_rx_clock(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> (pd.DataFrame, pd.DataFrame):
+def _correct_rx_clock(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Use the computed receiver clock offset ("b_rx_m") to correct pseudoranges and timestamps.
     :param pd_gnss_raw: GNSS raw dataframe
@@ -416,7 +418,7 @@ def _correct_rx_clock(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> (
 
 
 def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, ephem_filepath: str = None,
-                          approx_pvt: tuple[float, float, float]=(0, 0, 0)) -> pd.DataFrame:
+                          approx_pvt: Tuple[float, float, float]=(0, 0, 0)) -> pd.DataFrame:
     """
     Computes position estimate using OLS and clock and atmospheric corrections.
     source: https://gssc.esa.int/navipedia/index.php?title=GNSS_Measurements_Modelling

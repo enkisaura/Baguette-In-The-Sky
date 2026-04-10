@@ -10,6 +10,8 @@ __version__ = "0.0.1"
 
 from pandas import Timestamp, Timedelta
 import math
+from decimal import Decimal, ROUND_HALF_EVEN
+from typing import Tuple, Union
 
 # Define GPS epoch (January 6, 1980)
 GPS_EPOCH = Timestamp('1980-01-06T00:00:00', tz='UTC')
@@ -37,6 +39,53 @@ LEAP_SECONDS = [
 ]
 
 
+def decimal_seconds_to_sec_ns(value: Decimal) -> Tuple[int, int]:
+    """
+    Convert Decimal seconds into (whole_seconds, nanoseconds).
+    Nanoseconds are rounded to the nearest integer.
+    """
+    whole_seconds = int(value // Decimal("1"))
+    frac = value - Decimal(whole_seconds)
+    nanoseconds = int((frac * Decimal("1000000000")).to_integral_value(rounding=ROUND_HALF_EVEN))
+
+    # Handle carry if rounding gives 1_000_000_000 ns
+    if nanoseconds >= 1_000_000_000:
+        whole_seconds += 1
+        nanoseconds -= 1_000_000_000
+
+    return whole_seconds, nanoseconds
+
+def _split_seconds_to_sec_ns(value: Union[int, float , Decimal]) -> Tuple[int, int]:
+    """
+    Convert a numeric seconds value into (whole_seconds, nanoseconds).
+    Supports int, float, and Decimal.
+
+    Float inputs are still limited by float precision.
+    Decimal inputs preserve high precision.
+    """
+    if isinstance(value, Decimal):
+        whole_seconds = int(value // Decimal("1"))
+        frac = value - Decimal(whole_seconds)
+        nanoseconds = int(
+            (frac * Decimal("1000000000")).to_integral_value(rounding=ROUND_HALF_EVEN)
+        )
+    elif isinstance(value, int):
+        whole_seconds = value
+        nanoseconds = 0
+    else:
+        # float path: precision already limited by float
+        whole_seconds = int(value)
+        nanoseconds = int(round((value - whole_seconds) * 1e9))
+
+    if nanoseconds >= 1_000_000_000:
+        whole_seconds += 1
+        nanoseconds -= 1_000_000_000
+    elif nanoseconds < 0:
+        whole_seconds -= 1
+        nanoseconds += 1_000_000_000
+
+    return whole_seconds, nanoseconds
+
 def count_leap_seconds(dt: Timestamp) -> int:
     """
     Counts the number of leap seconds that have occurred up to a given UTC datetime.
@@ -61,23 +110,18 @@ def gps_time_ts_to_utc_ts(gps_time_ts: Timestamp) -> Timestamp:
 
     return utc_time_ts
 
-
-def gps_time_to_timestamp(gps_time: float) -> Timestamp:
+def gps_time_to_timestamp(gps_time: Union[int , float , Decimal]) -> Timestamp:
     """
-    Convert GPS time in seconds to a pandas Timestamp (UTC), accounting for leap seconds.
-    Precision depends on the size of the float.
-    :param gps_time:  Time in seconds since the GPS epoch.
-    :return:  The corresponding UTC timestamp.
+    Convert GPS seconds since GPS epoch to UTC pandas Timestamp.
+    Supports int, float, and Decimal.
     """
-    # Compute the GPS time in UTC by adding the GPS time to the GPS epoch
-    gps_time_ts = GPS_EPOCH + Timedelta(seconds=gps_time)
-
+    sec, ns = _split_seconds_to_sec_ns(gps_time)
+    gps_time_ts = GPS_EPOCH + Timedelta(sec, "s") + Timedelta(ns, "ns")
     utc_time_ts = gps_time_ts_to_utc_ts(gps_time_ts)
-
     return utc_time_ts
 
 
-def gps_week_to_timestamp(gps_week: int, tow: float) -> Timestamp:
+def gps_week_to_timestamp_v1(gps_week: int, tow: float) -> Timestamp:
     """
     Converts GPS time (week, seconds of week) to pandas.Timestamp.
     Precision to the nanosecond (ns).
@@ -91,6 +135,17 @@ def gps_week_to_timestamp(gps_week: int, tow: float) -> Timestamp:
 
     utc_time_ts = gps_time_ts_to_utc_ts(gps_time_ts)
 
+    return utc_time_ts
+
+def gps_week_to_timestamp(gps_week: int, tow: Union[int , float , Decimal]) -> Timestamp:
+    sec, ns = _split_seconds_to_sec_ns(tow)
+    gps_time_ts = (
+        GPS_EPOCH
+        + Timedelta(gps_week * 7 * 86400, "s")
+        + Timedelta(sec, "s")
+        + Timedelta(ns, "ns")
+    )
+    utc_time_ts = gps_time_ts_to_utc_ts(gps_time_ts)
     return utc_time_ts
 
 
@@ -111,6 +166,22 @@ def timestamp_to_gps_time(ts: Timestamp) -> float:
     gps_time = gps_seconds + leap_seconds
 
     return gps_time
+
+def timestamp_to_gps_time_decimal(ts: Timestamp) -> Decimal:
+    ts = ts.tz_convert("UTC") if ts.tzinfo else ts.tz_localize("UTC")
+
+    leap_seconds = count_leap_seconds(ts)
+    delta = ts - GPS_EPOCH
+
+    total_ns = (
+        delta.days * 86400 * 1_000_000_000
+        + delta.seconds * 1_000_000_000
+        + delta.microseconds * 1_000
+        + delta.nanoseconds
+    )
+
+    gps_ns = total_ns + leap_seconds * 1_000_000_000
+    return Decimal(gps_ns) / Decimal("1000000000")
 
 
 def timestamp_to_gps_tow(ts: Timestamp) -> (int, float):
@@ -137,6 +208,41 @@ def timestamp_to_gps_tow(ts: Timestamp) -> (int, float):
     tow = (delta.days % 7) * 86400 + delta.seconds + delta.microseconds / 1e6 + delta.nanoseconds / 1e9
 
     return gps_week, tow
+
+def timestamp_to_gps_tow_decimal(ts: Timestamp) -> Tuple[int, Decimal]:
+    ts = ts.tz_convert("UTC") if ts.tzinfo else ts.tz_localize("UTC")
+
+    leap_seconds = count_leap_seconds(ts)
+    gps_time = ts + Timedelta(seconds=leap_seconds)
+
+    delta = gps_time - GPS_EPOCH
+
+    gps_week = delta.days // 7
+
+    tow_ns = (
+        (delta.days % 7) * 86400 * 1_000_000_000
+        + delta.seconds * 1_000_000_000
+        + delta.microseconds * 1_000
+        + delta.nanoseconds
+    )
+
+    tow = Decimal(tow_ns) / Decimal("1000000000")
+    return gps_week, tow
+
+def timestamp_to_unix_decimal(ts: Timestamp) -> Decimal:
+    ts = ts.tz_convert("UTC") if ts.tzinfo else ts.tz_localize("UTC")
+    unix_epoch = Timestamp("1970-01-01T00:00:00Z")
+
+    delta = ts - unix_epoch
+
+    total_ns = (
+        delta.days * 86400 * 1_000_000_000
+        + delta.seconds * 1_000_000_000
+        + delta.microseconds * 1_000
+        + delta.nanoseconds
+    )
+
+    return Decimal(total_ns) / Decimal("1000000000")
 
 
 def utc_to_gmst_radians(timestamp: Timestamp) -> float:

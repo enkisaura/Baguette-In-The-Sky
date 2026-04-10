@@ -15,9 +15,11 @@ import numpy as np
 import math
 import warnings
 from typing import Literal
-from bits.src.sv_model import retrieve_ephemeris, compute_eccentric_anomaly
-from bits.src import const
-from bits.src.utils import check_dataframe
+from typing import Tuple
+
+from .sv_model import retrieve_ephemeris, compute_eccentric_anomaly
+from . import const
+from .utils import check_dataframe
 
 # Clock corrections
 def compute_satellite_clock_correction(dt, a0, a1, a2) -> float:
@@ -103,7 +105,7 @@ def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
 ########################################################################################################################
 # Atmospheric corrections
 def compute_klobuchar(rx_lat: float, rx_lon: float, tow: float, sv_elevation: float, sv_azimuth: float,
-                      alpha: tuple[float, float, float, float], beta: tuple[float, float, float, float]) -> float:
+                      alpha: Tuple[float, float, float, float], beta: Tuple[float, float, float, float]) -> float:
     """
     Compute ionospheric delay using Klobuchar's model.
     GPS satellites broadcast the parameters of the Klobuchar ionospheric model for single frequency users. This

@@ -12,11 +12,13 @@ import pandas as pd
 import math
 import numpy as np
 import warnings
-from bits.src.reference_frame_object import GnssTimestamp
-from bits.src.convert import space_conversion
-from bits.src import const
-from bits.src.parsers.ephemeris import rinex_nav
-from bits.src.utils import check_dataframe
+from typing import Tuple
+
+from .reference_frame_object import GnssTimestamp
+from .convert import space_conversion
+from . import const
+from .parsers.ephemeris import rinex_nav
+from .utils import check_dataframe
 
 
 def compute_eccentric_anomaly(pd_ephemeris_row: pd.Series, time: GnssTimestamp, ek_iterations=5):
@@ -44,7 +46,7 @@ def compute_eccentric_anomaly(pd_ephemeris_row: pd.Series, time: GnssTimestamp, 
     return ek, n
 
 def _get_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp, ek_iterations=5) \
-        -> tuple[float, float, float, float, float, float, float, float, float, float]:
+        -> Tuple[float, float, float, float, float, float, float, float, float, float]:
     """
     Compute GPS, Galileo or Beidou SV states.
     Computes one satellite position at a specific time using its ephemeris parameters.
@@ -148,7 +150,7 @@ def _get_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp, ek_itera
     return xk, yk, zk, xk_dot, yk_dot, zk_dot, xk_dotdot, yk_dotdot, zk_dotdot, ek
 
 
-def _get_glo_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp) -> tuple[float, float, float]:
+def _get_glo_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp) -> Tuple[float, float, float]:
     """
     Compute Glonass SV states.
     Computes one satellite position at a specific time using its ephemeris parameters.
