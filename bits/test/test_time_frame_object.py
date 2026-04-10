@@ -3,7 +3,7 @@ Tests for the GnssTimestamp constructor
 
 Usage: Used from pytest
 ======
-    python -m pytest -v
+    python -m pytest -v test/test_time_frame_object.py
 """
 
 __authors__ = ("Corentin M")
