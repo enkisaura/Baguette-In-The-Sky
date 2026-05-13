@@ -220,13 +220,15 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, 
     pd_gnss["delta_time"] = \
         pd_gnss.apply(lambda row: pd.Timedelta(row[pr_column_name] / const.C, unit="seconds"), axis=1)
     pd_gnss["emission_time"] = \
-        pd_gnss.apply(lambda row: row[timestamp_column_name] - row["delta_time"], axis=1)
+        pd_gnss.apply(lambda row: np.nan if pd.isna(row["delta_time"])
+        else row[timestamp_column_name] - row["delta_time"], axis=1)
 
     # Compute sv states at emission time
     pd_gnss_glo = pd_gnss[pd_gnss["gnss_id"] == "glo"]
     if not pd_gnss_glo.empty:
         pd_gnss_glo[["x_sv_m", "y_sv_m", "z_sv_m"]] = \
-            pd_gnss_glo.apply(lambda row: pd.Series(_get_glo_sv_state_row(row, row["emission_time"])), axis=1)
+            pd_gnss_glo.apply(lambda row: np.nan if pd.isna(row["emission_time"])
+            else pd.Series(_get_glo_sv_state_row(row, row["emission_time"])), axis=1)
     else:
         pd_gnss_glo = pd.DataFrame()
 
@@ -234,7 +236,8 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, 
     if not pd_gnss.empty:
         pd_gnss[["x_sv_m", "y_sv_m", "z_sv_m", "vx_sv_mps", "vy_sv_mps", "vz_sv_mps", "ax_sv_mpss", "ay_sv_mpss",
                  "az_sv_mpss", "eccentric_anomaly"]] = \
-            pd_gnss.apply(lambda row: pd.Series(_get_sv_state_row(row, row["emission_time"])), axis=1)
+            pd_gnss.apply(lambda row: pd.Series([np.nan] * 10) if pd.isna(row["emission_time"])
+            else pd.Series(_get_sv_state_row(row, row["emission_time"])), axis=1)
     else:
         pd_gnss = pd.DataFrame()
 

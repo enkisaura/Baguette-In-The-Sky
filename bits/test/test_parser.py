@@ -23,6 +23,7 @@ rinex2_filepath = os.path.join(test_data_directory_path, "rinex_nav.rnx")
 rinex3_filepath = os.path.join(test_data_directory_path, "SkydelRINEX_S_2023257120_600S_EN.rnx")
 skydel_raw_directory_path = os.path.join(test_data_directory_path, "skydel_raw")
 micdrop_raw_filepath = os.path.join(test_data_directory_path, "gnss_raw", "rx1_1")
+rinex_obs_filepath = os.path.join(test_data_directory_path, "XXXX00FRA_R_20261271839_00U_01S_MO.rnx")
 
 def test_rinex_nav_2():
     pd_parsed_ephemeris = ephemeris.rinex_nav(rinex2_filepath)
@@ -42,9 +43,14 @@ def test_micdrop_raw():
     pd_parsed_raw = gnss_raw.micdrop_raw(micdrop_raw_filepath)
     assert isinstance(pd_parsed_raw, pd.DataFrame) and not pd_parsed_raw.empty
 
+def test_rinex_obs():
+    pd_parsed_raw = gnss_raw.rinex_obs(rinex_obs_filepath)
+    assert isinstance(pd_parsed_raw, pd.DataFrame) and not pd_parsed_raw.empty
+
 
 if __name__ == "__main__":
     test_rinex_nav_2()
     test_rinex_nav_3()
     test_skydel_raw()
     test_micdrop_raw()
+    test_rinex_obs()

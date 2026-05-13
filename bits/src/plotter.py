@@ -61,7 +61,7 @@ def plot(pd_gnss_pvt: pd.DataFrame, m:folium.map=None, plot_name: str = "Plot", 
     if not {'lat', 'lon'}.issubset(pd_gnss_pvt.columns):
         raise ValueError("DataFrame must contain 'lat' and 'lon' columns.")
 
-    locations = pd_gnss_pvt[['lat', 'lon']].values.tolist()
+    locations = pd_gnss_pvt[['lat', 'lon']].dropna().values.tolist()
 
     if m is None:
         # Create an empty map
