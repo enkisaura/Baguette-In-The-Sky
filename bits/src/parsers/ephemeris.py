@@ -46,7 +46,7 @@ def rinex_nav(filepath):
 
     ephemeris = georinex.load(filepath)
 
-    pd_ephemeris = ephemeris.to_dataframe()
+    pd_ephemeris = ephemeris.to_dataframe().dropna(how='all')
 
     # Rename and rearrange
     indexes = pd_ephemeris.index
@@ -59,10 +59,6 @@ def rinex_nav(filepath):
 
     # Clean up
     pd_ephemeris = pd_ephemeris.rename(columns=lost_in_translation)
-    if 'X' in pd_ephemeris.columns:
-        pd_ephemeris = pd_ephemeris.dropna(subset=['X'], how='all')
-    if 'crs' in pd_ephemeris.columns:
-        pd_ephemeris = pd_ephemeris.dropna(subset=['crs'], how='all')
     pd_ephemeris = pd_ephemeris.dropna(axis=1, how='all')
     pd_ephemeris = pd_ephemeris.reset_index(drop=True)
 
