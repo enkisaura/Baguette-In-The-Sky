@@ -101,7 +101,6 @@ def rinex_obs(filepath: str) -> pandas.DataFrame:
     })
 
     # Convert Timestamp to GnssTimestamp
-    #obs_df["time"] = obs_df["time"] - pd.Timedelta(seconds=18) # TODO virer !!!!
     obs_df["time"] = \
         obs_df["time"].apply(lambda timestamp: GnssTimestamp.from_pd_timestamp_gps_time(timestamp))
 
@@ -118,7 +117,7 @@ def rinex_obs(filepath: str) -> pandas.DataFrame:
     # Get pseudorange
     obs_df["pr_m"] = obs_df["C1C"].combine_first(obs_df["C2I"])
 
-    # Get doppler TODO: doppler_hz != pseudorange rate
+    # Get doppler
     obs_df["doppler_hz"] = obs_df["D1C"].combine_first(obs_df["D2I"])
     obs_df["pr_rate_mps"] = \
         obs_df["doppler_hz"].apply(lambda doppler: doppler_to_pr_rate(doppler)) # TODO works only with L1...
