@@ -87,12 +87,8 @@ def plot3d(pd_gnss:pd.DataFrame, sv_pos_ecef_cols: tuple=("x_sv_m", "y_sv_m", "z
 
     # Plot receiver
     if rx_pos_ecef_cols is not None:
-        if plot_all_timestamps:
-            ax.scatter(pd_gnss[rx_pos_ecef_cols[0]], pd_gnss[rx_pos_ecef_cols[1]], pd_gnss[rx_pos_ecef_cols[2]],
-                       color='r', s=1)
-        else:
-            ax.scatter(pd_gnss[rx_pos_ecef_cols[0]].iloc[0], pd_gnss[rx_pos_ecef_cols[1]].iloc[0],
-                       pd_gnss[rx_pos_ecef_cols[2]].iloc[0], color='r', s=1)
+        ax.scatter(pd_gnss[rx_pos_ecef_cols[0]].iloc[0], pd_gnss[rx_pos_ecef_cols[1]].iloc[0],
+                   pd_gnss[rx_pos_ecef_cols[2]].iloc[0], color='r', s=1)
 
 
     return fig, ax
