@@ -30,7 +30,7 @@ def plot3d(pd_gnss:pd.DataFrame, sv_pos_ecef_cols: tuple=("x_sv_m", "y_sv_m", "z
     :param sv_name_col: Satellite name column.
     :param rx_pos_ecef_cols: Receiver ECEF coordinate columns.
     :param plot_all_timestamps: If False, keeps only first occurrence of each satellite.
-    :return: ax
+    :return: fig, ax
     """
     pd_gnss = pd_gnss.copy()
 
@@ -95,7 +95,7 @@ def plot3d(pd_gnss:pd.DataFrame, sv_pos_ecef_cols: tuple=("x_sv_m", "y_sv_m", "z
                        pd_gnss[rx_pos_ecef_cols[2]].iloc[0], color='r', s=1)
 
 
-    return ax
+    return fig, ax
 
 
 def plot(pd_gnss_pvt: pd.DataFrame, m:folium.map=None, plot_name: str = "Plot", plot_rail=True) -> folium.map:
