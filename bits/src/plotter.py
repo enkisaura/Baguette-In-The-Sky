@@ -156,3 +156,83 @@ def plot(pd_gnss_pvt: pd.DataFrame, m:folium.map=None, plot_name: str = "Plot", 
     print("Map saved as 'plot.html'")
 
     return m
+
+def skyplot(pd_gnss: pd.DataFrame, az_col:str="azimuth_rad", el_col:str="elevation_rad",
+            sv_name_col: str | None = "sv_id", degrees:bool=False, plot_all_timestamps: bool=True,
+            fig:plt.Figure|None=None):
+
+    """
+    GNSS skyplot
+
+    :param pd_gnss: GNSS dataframe.
+    :param az_col: Column containing satellite azimuth (0 is north).
+    :param el_col: Column containing satellite elevation (0 is zenith).
+    :param sv_name_col: Column containing satellite name.
+    :param degrees: Set to True for azimuth and elevation in degrees, False for radians.
+    :param plot_all_timestamps: If False, keeps only first occurrence of each satellite.
+    :param fig: Pyplot figure to plot the skyplot on.
+    :return: fig, ax
+    """
+    pd_gnss = pd_gnss.copy()
+
+    # Set figure
+    if fig is None:
+        fig = plt.figure("Skyplot")
+    ax = plt.subplot(111, polar=True)
+    # Grid styling
+    ax.set_rlim(0, np.pi/2)
+    ax.set_rticks([0, np.pi/6, np.pi/3, np.pi/2])
+    ax.set_yticklabels([])
+    ax.set_thetagrids(
+        [0, 90, 180, 270],
+        labels=["N", "E", "S", "W"]
+    )
+    # Standard GNSS orientation
+    ax.set_theta_zero_location("N") # 0° = North
+    ax.set_theta_direction(-1) # clockwise
+
+    # Keep only one occurrence of each satellite
+    if not plot_all_timestamps and sv_name_col is not None:
+        pd_gnss = pd_gnss.drop_duplicates(subset=[sv_name_col], keep="first")
+
+    az = pd_gnss[az_col].values
+    el = pd_gnss[el_col].values
+
+    # Conversions to radians
+    if degrees:
+        az = np.deg2rad(az)
+        el = np.deg2rad(el)
+
+    # Reverse elevation so that zenith is at the center of the plot
+    r = (np.pi / 2) - el
+
+    # Plot satellites
+    if sv_name_col is not None:
+        # Get a different color for each SV
+        sv_ids = pd_gnss[sv_name_col].values
+        unique_svs = np.unique(sv_ids)
+        sv_map = {sv: i for i, sv in enumerate(unique_svs)}
+        colors = [sv_map[sv] for sv in sv_ids]
+
+        ax.scatter(az, r, c=colors, cmap="tab20", s=30)
+    else:
+        ax.scatter(az, r, c="red", s=30)
+
+    # Labels
+    if sv_name_col is not None:
+        pd_gnss = pd_gnss.drop_duplicates(subset=[sv_name_col], keep="last") # Label only the last occurrence of each SV
+        for i, row in pd_gnss.iterrows():
+            # Format azimuth and elevation
+            az_i = np.deg2rad(row[az_col]) if degrees else row[az_col]
+            el_i = np.deg2rad(row[el_col]) if degrees else row[el_col]
+            r_i = (np.pi / 2) - el_i
+
+            # Add labels
+            ax.text(
+                az_i,
+                r_i,
+                str(row[sv_name_col]),
+                fontsize=8
+            )
+
+    return fig, ax
