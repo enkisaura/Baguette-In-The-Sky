@@ -11,10 +11,15 @@ __version__ = "0.0.1"
 import pandas
 import pandas as pd
 import numpy as np
+import georinex
 import os
 from bits.src.reference_frame_object import GnssTimestamp
 from bits.src.naming import normalize_gnss_constellation
 from bits.src.convert.other import doppler_to_pr_rate
+
+# Get read of FutureWarning from georinex
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="georinex")
 
 
 def skydel_raw(filepath: str) -> pandas.DataFrame:
@@ -82,3 +87,44 @@ def micdrop_raw(filepath: str) -> pandas.DataFrame:
     pd_data["gnss_id"] = pd_data["gnss_id"].apply(normalize_gnss_constellation)
 
     return pd_data
+
+def rinex_obs(filepath: str) -> pandas.DataFrame:
+    # Parsing rinex file to dataframe
+    obs = georinex.load(filepath, verbose=True)
+    obs_df = obs.to_dataframe()
+    obs_df = obs_df.reset_index()
+
+    # Getting timestamp and sv IDs
+    obs_df = obs_df.rename(columns={
+        obs_df.columns[0]: "time",
+        obs_df.columns[1]: "sv"
+    })
+
+    # Convert Timestamp to GnssTimestamp
+    obs_df["time"] = \
+        obs_df["time"].apply(lambda timestamp: GnssTimestamp.from_pd_timestamp_gps_time(timestamp))
+
+    # Get constellation id
+    obs_df["gnss_id"] = obs_df["sv"].str[0]
+
+    # Normalize GNSS constellation name
+    obs_df["gnss_id"] = obs_df["gnss_id"].apply(normalize_gnss_constellation)
+
+    # Get PRN #
+    obs_df["sv_id"] = obs_df["sv"].str[1:]
+    obs_df["sv_id"] = obs_df["sv_id"].astype(int)
+
+    # Get pseudorange
+    obs_df["pr_m"] = obs_df["C1C"].combine_first(obs_df["C2I"])
+
+    # Get doppler
+    obs_df["doppler_hz"] = obs_df["D1C"].combine_first(obs_df["D2I"])
+    obs_df["pr_rate_mps"] = \
+        obs_df["doppler_hz"].apply(lambda doppler: doppler_to_pr_rate(doppler)) # TODO works only with L1...
+
+    # Clean up
+    obs_df = obs_df[["time", "gnss_id", "sv_id", "pr_m", "doppler_hz", "pr_rate_mps"]]
+    obs_df = obs_df.dropna()
+    obs_df = obs_df.reset_index(drop=True)
+
+    return obs_df

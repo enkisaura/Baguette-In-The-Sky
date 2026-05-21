@@ -42,7 +42,7 @@ def compute_geometry_matrix(sv_position: np.array, rx_pos: np.array) -> np.array
         rx_pos.transpose()
     if rx_pos.shape[0] == sv_position.shape[0]: # sv_position is transposed
         warnings.warn("While computing geometry matrix, SV position matrix seemed transposed.")
-        sv_position.transpose()
+        sv_position.transpose() # TODO quite a dangerous behaviour...
 
     # Doing the math
     rx_pos = np.tile(rx_pos, (sv_position.shape[0], 1))
@@ -317,7 +317,6 @@ def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: 
                             warnings.warn(txt)
                             pd_gnss_approx_pvt.loc[index, ["vx_rx_mps", "vy_rx_mps", "vz_rx_mps", "vb_rx_mps"]] = None
 
-        print(i)
         if (pd_gnss_approx_pvt['ols_convergence_m'] < convergence_tolerance).all(): # Check if convergence is satisfactory
             break
 
@@ -407,16 +406,26 @@ def _correct_rx_clock(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> (
                 txt = f"Position estimate has several possibilities at timestamp {timestamp}. Using first instance to compute az & el."
                 warnings.warn(txt, UserWarning)
             pd_ser_gnss_pvt_at_timestamp = pd_gnss_pvt_at_timestamp.iloc[0]
-            corrected_timestamp = pd_ser_gnss_pvt_at_timestamp["time"] + pd.Timedelta(seconds=pd_ser_gnss_pvt_at_timestamp["b_rx_m"] / const.C)
+
+            b_rx_m = pd_ser_gnss_pvt_at_timestamp["b_rx_m"] # Get receiver clock bias
+
+            # If no clock bias has been computed, return None
+            if b_rx_m is None or pd.isna(b_rx_m):
+                pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["corr_time"]] = float("nan")
+                pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["corr_pr_m"]] = float("nan")
+                pd_gnss_pvt.loc[pd_gnss_pvt_at_timestamp.index, ["corr_time"]] = float("nan")
+                continue
+
+            corrected_timestamp = pd_ser_gnss_pvt_at_timestamp["time"] + pd.Timedelta(seconds=b_rx_m / const.C)
             pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["corr_time"]] = corrected_timestamp
-            pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["corr_pr_m"]] -= pd_ser_gnss_pvt_at_timestamp["b_rx_m"]
+            pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["corr_pr_m"]] -= b_rx_m
             pd_gnss_pvt.loc[pd_gnss_pvt_at_timestamp.index, ["corr_time"]] = corrected_timestamp
 
     return pd_gnss_raw, pd_gnss_pvt
 
 
 def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, ephem_filepath: str = None,
-                          approx_pvt: tuple[float, float, float]=(0, 0, 0)) -> pd.DataFrame:
+                          approx_pvt: tuple[float, float, float]=(0, 0, 0), verbose=False) -> pd.DataFrame:
     """
     Computes position estimate using OLS and clock and atmospheric corrections.
     source: https://gssc.esa.int/navipedia/index.php?title=GNSS_Measurements_Modelling
@@ -426,34 +435,60 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
     :param approx_pvt: Position (ECEF meters) at initialization (default -> centre of earth)
     :return: GNSS pvt dataframe, corrected GNSS raw dataframe
     """
+    if verbose:
+        print("Computing position estimate...")
+
     raw_required_columns = ["time", "pr_m", "gnss_id", "sv_id"]
     if not check_dataframe(pd_gnss_raw, raw_required_columns):
         warnings.warn("Missing columns in pd_gnss_raw, cannot compute position.")
         return pd_gnss_raw
 
+    if verbose:
+        print("1/9: Finding satellites...")
+
     # Get satellite vehicle positions
     pd_gnss_raw = get_sv_states(pd_gnss_raw, pd_ephemeris, ephem_filepath=ephem_filepath)
+
+    if verbose:
+        print("2/9: Correcting satellite clock...")
 
     # Correct satellite clock errors
     pd_gnss_raw = get_clock_corrections(pd_gnss_raw)
 
+    if verbose:
+        print("3/9: Computing rough position estimate...")
+
     # Get a first position estimate
     pd_gnss_pvt = get_approx_position_estimate(pd_gnss_raw, approx_pvt=approx_pvt, convergence_tolerance=10000)
 
+    if verbose:
+        print("4/9: Correcting receiver clock...")
+
     # Correct receiver clock and recompute SV states
     pd_gnss_raw, pd_gnss_pvt = _correct_rx_clock(pd_gnss_raw, pd_gnss_pvt)
+    if verbose:
+        print("5/9: Finding satellites, again...")
     pd_gnss_raw = get_sv_states(pd_gnss_raw, pd_ephemeris, ephem_filepath=ephem_filepath)
 
+    if verbose:
+        print("6/9: Correcting atmospheric errors...")
     # Correct atmospheric error
     pd_gnss_raw = get_sv_el_az(pd_gnss_raw, pd_gnss_pvt)
     pd_gnss_raw = get_atmospheric_corrections(pd_gnss_raw, pd_gnss_pvt)
 
+    if verbose:
+        print("7/9: Computing a better position estimate...")
     # Compute a corrected position estimate
     pd_gnss_pvt = get_approx_position_estimate(pd_gnss_raw, pd_gnss_approx_pvt=pd_gnss_pvt, convergence_tolerance=100)
 
+    if verbose:
+        print("8/9: Correcting receiver clock and finding satellites, again...")
     # Correct receiver clock and recompute SV states
     pd_gnss_raw, pd_gnss_pvt = _correct_rx_clock(pd_gnss_raw, pd_gnss_pvt)
     pd_gnss_raw = get_sv_states(pd_gnss_raw, pd_ephemeris, ephem_filepath=ephem_filepath)
+
+    if verbose:
+        print("9/9: Computing final position estimate...")
 
     # Compute a final position estimate
     pd_gnss_pvt = get_approx_position_estimate(pd_gnss_raw, pd_gnss_approx_pvt=pd_gnss_pvt)

@@ -10,6 +10,7 @@ __version__ = "0.0.1"
 
 import georinex
 import warnings
+import pandas as pd
 from bits.src.reference_frame_object import GnssTimestamp
 from bits.src.naming import normalize_gnss_constellation
 
@@ -45,7 +46,7 @@ def rinex_nav(filepath):
 
     ephemeris = georinex.load(filepath)
 
-    pd_ephemeris = ephemeris.to_dataframe()
+    pd_ephemeris = ephemeris.to_dataframe().dropna(how='all')
 
     # Rename and rearrange
     indexes = pd_ephemeris.index
@@ -54,14 +55,10 @@ def rinex_nav(filepath):
     pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(lambda sv: sv[0])
     pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(normalize_gnss_constellation)
     pd_ephemeris["time"] = indexes.get_level_values(0)
-    pd_ephemeris["time"] = pd_ephemeris["time"].apply(lambda ts: GnssTimestamp(ts))
+    pd_ephemeris["time"] = pd_ephemeris["time"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_gps_time(ts))
 
     # Clean up
     pd_ephemeris = pd_ephemeris.rename(columns=lost_in_translation)
-    if 'X' in pd_ephemeris.columns:
-        pd_ephemeris = pd_ephemeris.dropna(subset=['X'], how='all')
-    if 'crs' in pd_ephemeris.columns:
-        pd_ephemeris = pd_ephemeris.dropna(subset=['crs'], how='all')
     pd_ephemeris = pd_ephemeris.dropna(axis=1, how='all')
     pd_ephemeris = pd_ephemeris.reset_index(drop=True)
 

@@ -43,7 +43,7 @@ def count_leap_seconds(dt: Timestamp) -> int:
     :param dt: Time of the measurements
     :return: Number of leap seconds
     """
-    return sum(1 for leap in LEAP_SECONDS if dt > leap)
+    return sum(1 for leap in LEAP_SECONDS if dt > (leap.replace(tzinfo=None) if dt.tzinfo is None else leap))
 
 
 # To timestamp

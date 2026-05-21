@@ -55,6 +55,12 @@ def _get_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp, ek_itera
     :return: (x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef, ek) -> Satellite position,
     speed and acceleration in ECEF and eccentric anomaly
     """
+    required_columns = ["sqrta", "time_navdata", "toe", "e", "omega", "cuc", "cus", "crc", "crs", "cic", "cis", "i0",
+                        "idot", "omega0", "omegadot"]
+
+    if pd.isna(time) or pd_ephemeris_row[required_columns].isna().any():
+        return [np.nan] * 10
+
     a = pd_ephemeris_row["sqrta"] ** 2  # Semi-major axis
 
     # This line is from stanford
@@ -157,6 +163,11 @@ def _get_glo_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp) -> t
     :param time: Time at which the satellite's position should be computed
     :return: (x_ecef, y_ecef, z_ecef) -> Satellite position in ECEF
     """
+    required_columns = ["time_navdata", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2",]
+
+    if pd.isna(time) or pd_ephemeris_row[required_columns].isna().any():
+        return [np.nan] * 3
+
     delta_t = time.tow() - pd_ephemeris_row["time_navdata"].tow()
 
     # Coordinates transformation to an inertial reference frame
@@ -219,22 +230,33 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, 
     # Find emission time
     pd_gnss["delta_time"] = \
         pd_gnss.apply(lambda row: pd.Timedelta(row[pr_column_name] / const.C, unit="seconds"), axis=1)
-    pd_gnss["emission_time"] = \
-        pd_gnss.apply(lambda row: row[timestamp_column_name] - row["delta_time"], axis=1)
+
+    valid_mask = pd_gnss["delta_time"].notna()
+
+    pd_gnss.loc[valid_mask, ["emission_time"]] = pd_gnss.loc[valid_mask].apply(
+        lambda row: row[timestamp_column_name] - row["delta_time"], axis=1)
 
     # Compute sv states at emission time
     pd_gnss_glo = pd_gnss[pd_gnss["gnss_id"] == "glo"]
     if not pd_gnss_glo.empty:
-        pd_gnss_glo[["x_sv_m", "y_sv_m", "z_sv_m"]] = \
-            pd_gnss_glo.apply(lambda row: pd.Series(_get_glo_sv_state_row(row, row["emission_time"])), axis=1)
+        cols = ["x_sv_m", "y_sv_m", "z_sv_m",]
+
+        pd_gnss.loc[:, cols] = pd_gnss.apply(
+            lambda row: _get_glo_sv_state_row(row, row["emission_time"]), axis=1, result_type="expand").to_numpy()
     else:
         pd_gnss_glo = pd.DataFrame()
 
     pd_gnss = pd_gnss[pd_gnss["gnss_id"] != "glo"]
     if not pd_gnss.empty:
-        pd_gnss[["x_sv_m", "y_sv_m", "z_sv_m", "vx_sv_mps", "vy_sv_mps", "vz_sv_mps", "ax_sv_mpss", "ay_sv_mpss",
-                 "az_sv_mpss", "eccentric_anomaly"]] = \
-            pd_gnss.apply(lambda row: pd.Series(_get_sv_state_row(row, row["emission_time"])), axis=1)
+        cols = [
+            "x_sv_m", "y_sv_m", "z_sv_m",
+            "vx_sv_mps", "vy_sv_mps", "vz_sv_mps",
+            "ax_sv_mpss", "ay_sv_mpss", "az_sv_mpss",
+            "eccentric_anomaly",
+        ]
+
+        pd_gnss.loc[:, cols] = pd_gnss.apply(
+            lambda row: _get_sv_state_row(row, row["emission_time"]), axis=1, result_type="expand").to_numpy()
     else:
         pd_gnss = pd.DataFrame()
 

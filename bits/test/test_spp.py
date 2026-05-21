@@ -90,7 +90,7 @@ def test_azimuth_elevation():
     assert (pd_az_el_raw["az_diff"] < az_el_required_precision).all(), txt
 
 if __name__ == "__main__":
-    #test_geometry_matrix()
-    #test_approx_pos_estimate()
+    test_geometry_matrix()
+    test_approx_pos_estimate()
     test_pos_estimate()
-    #test_azimuth_elevation()
+    test_azimuth_elevation()

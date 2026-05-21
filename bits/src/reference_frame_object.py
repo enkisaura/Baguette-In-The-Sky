@@ -108,6 +108,12 @@ class GnssTimestamp:
         return cls(timestamp_str)
 
     @classmethod
+    def from_pd_timestamp_gps_time(cls, pd_ts_gps_time: Timestamp):
+        pd_ts = time_conversion.gps_time_ts_to_utc_ts(pd_ts_gps_time)
+        timestamp_str = pd_ts.isoformat(timespec="nanoseconds")
+        return cls(timestamp_str)
+
+    @classmethod
     def from_gps_time(cls, gps_time: float):
         pd_ts = time_conversion.gps_time_to_timestamp(gps_time)
         timestamp_str = pd_ts.isoformat(timespec="nanoseconds")
