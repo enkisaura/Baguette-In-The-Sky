@@ -33,7 +33,7 @@ def compute_satellite_clock_correction(dt, a0, a1, a2) -> float:
     satellite_clock_correction = a0 + a1*dt + np.sign(dt) * a2*(dt**2)
     return satellite_clock_correction
 
-def compute_relativistic_clock_correction(e, sqrta, eccentric_anomaly):
+def old_compute_relativistic_clock_correction(e, sqrta, eccentric_anomaly):
     """
     Compute relativistic satellite clock correction.
     source: https://gssc.esa.int/navipedia/index.php?title=Relativistic_Clock_Correction
@@ -44,6 +44,15 @@ def compute_relativistic_clock_correction(e, sqrta, eccentric_anomaly):
     """
     relativistic_clock_correction = const.F * e * sqrta * np.sin(eccentric_anomaly)
     return relativistic_clock_correction
+
+def compute_relativistic_clock_correction(x: float, y: float, z: float,
+                             vx: float, vy: float, vz: float) -> float:
+    """
+    Correction relativiste : dt_rel = -2 · (r · v) / c²
+    Identique à GPS, à appliquer sur le temps satellite.
+    """
+    r_dot_v = x*vx + y*vy + z*vz
+    return -2.0 * r_dot_v / const.C**2
 
 def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None) -> pd.DataFrame:
     """
@@ -78,15 +87,20 @@ def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
     # 1) Compute satellite clock correction:
     pd_gnss["poly_clock_corr_m"] = pd_gnss.apply(
         lambda row: const.C * compute_satellite_clock_correction(row["time_diff"].total_seconds(), row["clock_bias"],
-                                                             row["clock_drift"], row["clock_drift_rate"]), axis=1)
+                                                             row["clock_drift"], row["clock_drift_rate"]), axis=1).fillna(0)
 
     # 2) Compute relativistic clock corrections
-    if "eccentric_anomaly" not in pd_gnss.columns:
-        pd_gnss["eccentric_anomaly"] = pd_gnss.apply(
-            lambda row: compute_eccentric_anomaly(row, row["time"], ek_iterations=5)[0], axis=1)
+    #if "eccentric_anomaly" not in pd_gnss.columns:
+    #    pd_gnss["eccentric_anomaly"] = pd_gnss.apply(
+    #        lambda row: compute_eccentric_anomaly(row, row["time"], ek_iterations=5)[0], axis=1)
+    #pd_gnss["relat_clock_corr_m"] = pd_gnss.apply(
+    #    lambda row: const.C * compute_relativistic_clock_correction(row["e"], row["sqrta"], row["eccentric_anomaly"]),
+    #    axis=1).fillna(0)
     pd_gnss["relat_clock_corr_m"] = pd_gnss.apply(
-        lambda row: const.C * compute_relativistic_clock_correction(row["e"], row["sqrta"], row["eccentric_anomaly"]),
-        axis=1)
+       lambda row: const.C * compute_relativistic_clock_correction(row["x_sv_m"], row["y_sv_m"], row["z_sv_m"],
+                                                                   row["vx_sv_mps"], row["vy_sv_mps"], row["vz_sv_mps"]),axis=1).fillna(0)
+    #x float, y: float, z: float,
+    #vx: float, vy: float, vz: floa
 
     # 3) Compute group delay
     pd_gnss["tgd_clock_corr_m"] = const.C * pd_gnss["tgd"].fillna(0)
