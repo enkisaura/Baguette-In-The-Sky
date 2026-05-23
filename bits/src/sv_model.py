@@ -30,9 +30,10 @@ def compute_eccentric_anomaly(pd_ephemeris_row: pd.Series, time: GnssTimestamp, 
     a = pd_ephemeris_row["sqrta"] ** 2  # Semi-major axis
     n0 = math.sqrt(const.NU / a ** 3)  # Computed mean motion (rad/sec)w
     # This line is from stanford
-    gpsweek_diff = (np.mod(time.gps_week(), 1024)
-                    - np.mod(pd_ephemeris_row["time_navdata"].gps_week(), 1024)) * 604800.
-    tk = time.tow() - pd_ephemeris_row["toe"] + gpsweek_diff  # Time from ephemeris reference epoch
+    #gpsweek_diff = (np.mod(time.gps_week(), 1024)
+    #                - np.mod(pd_ephemeris_row["time_navdata"].gps_week(), 1024)) * 604800.
+    #tk = time.tow() - pd_ephemeris_row["toe"] + gpsweek_diff  # Time from ephemeris reference epoch
+    tk = (time - pd_ephemeris_row["time_of_ephemeris"]).total_seconds()
     n = n0 + pd_ephemeris_row["deltan"]  # Corrected mean motion
     mk = pd_ephemeris_row["m0"] + n * tk  # Mean anomaly
 
@@ -55,7 +56,7 @@ def _get_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp, ek_itera
     :return: (x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef, ek) -> Satellite position,
     speed and acceleration in ECEF and eccentric anomaly
     """
-    required_columns = ["sqrta", "time_navdata", "toe", "e", "omega", "cuc", "cus", "crc", "crs", "cic", "cis", "i0",
+    required_columns = ["sqrta", "time_navdata", "time_of_ephemeris", "e", "omega", "cuc", "cus", "crc", "crs", "cic", "cis", "i0",
                         "idot", "omega0", "omegadot"]
 
     if pd.isna(time) or pd_ephemeris_row[required_columns].isna().any():
@@ -63,10 +64,7 @@ def _get_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp, ek_itera
 
     a = pd_ephemeris_row["sqrta"] ** 2  # Semi-major axis
 
-    # This line is from stanford
-    gpsweek_diff = (np.mod(time.gps_week(), 1024)
-                    - np.mod(pd_ephemeris_row["time_navdata"].gps_week(), 1024)) * 604800.
-    tk = time.tow() - pd_ephemeris_row["toe"] + gpsweek_diff  # Time from ephemeris reference epoch
+    tk = (time - pd_ephemeris_row["time_of_ephemeris"]).total_seconds()
 
     ek, n = compute_eccentric_anomaly(pd_ephemeris_row, time, ek_iterations=ek_iterations)
 
@@ -97,8 +95,13 @@ def _get_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp, ek_itera
     yprimek = rk * math.sin(uk)
 
     # Corrected longitude of ascending node
-    omegak = pd_ephemeris_row["omega0"] + (pd_ephemeris_row["omegadot"] - const.OMEGA_E) * tk \
-             - const.OMEGA_E * pd_ephemeris_row["toe"]
+    if pd_ephemeris_row["gnss_id"]=="bei":
+        toe = pd_ephemeris_row["time_of_ephemeris"].bei_tow()
+    else:
+        toe = pd_ephemeris_row["time_of_ephemeris"].tow()
+    #omegak = pd_ephemeris_row["omega0"] + (pd_ephemeris_row["omegadot"] - const.OMEGA_E) * tk \
+    #         - const.OMEGA_E * pd_ephemeris_row["time_of_ephemeris"].tow()
+    omegak = pd_ephemeris_row["omega0"] + (pd_ephemeris_row["omegadot"] - const.OMEGA_E) * tk - const.OMEGA_E * toe
 
     # Earth-fixed geocentric satellite coordinate
     xk = xprimek * math.cos(omegak) - yprimek * math.cos(ik) * math.sin(omegak)
@@ -235,7 +238,7 @@ def _rk4_step(state: np.ndarray, ddx: float, ddy: float, ddz: float, h: float) -
     return state + (h / 6.0) * (K1 + 2 * K2 + 2 * K3 + K4)
 
 
-def _get_glo_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp, step_s:float=60) -> tuple[float, float, float]:
+def _get_glo_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp, step_s:float=30) -> tuple[float, float, float]:
     """
     Compute Glonass SV states.
     Computes one satellite position at a specific time using its ephemeris parameters.
@@ -245,21 +248,21 @@ def _get_glo_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp, step
     :return: (x_ecef, y_ecef, z_ecef) -> Satellite position in ECEF
     """
     C20 = -1_082.63e-9 # TODO
-    required_columns = ["time_navdata", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2",]
+    required_columns = ["time_of_ephemeris", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2",]
 
     if pd.isna(time) or pd_ephemeris_row[required_columns].isna().any():
         return [np.nan] * 3
 
-    delta_t = time.tow() - pd_ephemeris_row["time_navdata"].tow()
+    delta_t = (time - pd_ephemeris_row["time_of_ephemeris"]).total_seconds()
 
     # Coordinates transformation to an inertial reference frame
     xa, ya, za = space_conversion.ecef_to_eci_position(
-        pd_ephemeris_row["X"], pd_ephemeris_row["Y"], pd_ephemeris_row["Z"], pd_ephemeris_row["time_navdata"])
+        pd_ephemeris_row["X"], pd_ephemeris_row["Y"], pd_ephemeris_row["Z"], pd_ephemeris_row["time_of_ephemeris"])
     dxa, dya, dza = space_conversion.ecef_to_eci_velocity(
         pd_ephemeris_row["X"], pd_ephemeris_row["Y"], pd_ephemeris_row["Z"],
-        pd_ephemeris_row["dX"], pd_ephemeris_row["dY"], pd_ephemeris_row["dZ"], pd_ephemeris_row["time_navdata"])
+        pd_ephemeris_row["dX"], pd_ephemeris_row["dY"], pd_ephemeris_row["dZ"], pd_ephemeris_row["time_of_ephemeris"])
     ddxa, ddya, ddza = space_conversion.ecef_to_eci_position(
-        pd_ephemeris_row["dX2"], pd_ephemeris_row["dY2"], pd_ephemeris_row["dZ2"], pd_ephemeris_row["time_navdata"])
+        pd_ephemeris_row["dX2"], pd_ephemeris_row["dY2"], pd_ephemeris_row["dZ2"], pd_ephemeris_row["time_of_ephemeris"])
 
 
     # Intégration RK4 par pas de step_s secondes
@@ -327,17 +330,6 @@ def _get_glo_sv_state_row(pd_ephemeris_row: pd.Series, time: GnssTimestamp, step
     ay_ecef = -a_ecef_eci[0] * s + a_ecef_eci[1] * c
     az_ecef = a_ecef_eci[2]
 
-    """# To be improved (Not so much catholique but that go)
-    x_eci = xa + dxa * delta_t + 0.5 * ddxa * delta_t ** 2
-    y_eci = ya + dya * delta_t + 0.5 * ddya * delta_t ** 2
-    z_eci = za + dza * delta_t + 0.5 * ddza * delta_t ** 2
-
-    # Coordinates transformation back to the PZ-90 reference system
-    x_ecef, y_ecef, z_ecef = space_conversion.eci_to_ecef_position(x_eci, y_eci, z_eci, time)
-    vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef = (None, None, None, None, None, None)"""
-
-    #x, y, z = space_conversion.pz_90_to_ecef(x_pz90, y_pz90, z_pz90)
-
     return x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef, None#ek
 
 
@@ -352,7 +344,7 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, 
     :return: BITS raw dataframe with corresponding sv positions
     """
     raw_required_columns = ["time", "pr_m", "gnss_id", "sv_id"]
-    gps_ephemeris_required_columns = ["time", "toe", "sqrta", "e", "i0", "idot", "omega0", "omega", "m0", "omegadot",
+    gps_ephemeris_required_columns = ["time", "time_of_ephemeris", "sqrta", "e", "i0", "idot", "omega0", "omega", "m0", "omegadot",
                                   "deltan", "cuc", "cus", "crc", "crs", "cic", "cis"]
     glo_ephemeris_required_columns = ["time", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2", ]
 
@@ -430,7 +422,7 @@ def retrieve_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = N
     :param ephem_filepath: Path of a rinex nav file
     :return: GNSS raw dataframe with ephemeris
     """
-    gps_ephemeris_required_columns = ["time", "toe", "sqrta", "e", "i0", "idot", "omega0", "omega", "m0", "omegadot",
+    gps_ephemeris_required_columns = ["time", "time_of_ephemeris", "sqrta", "e", "i0", "idot", "omega0", "omega", "m0", "omegadot",
                                   "deltan", "cuc", "cus", "crc", "crs", "cic", "cis"]
     glo_ephemeris_required_columns = ["time", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2", ]
 
@@ -447,10 +439,7 @@ def retrieve_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = N
         merged = pd_gnss_raw.merge(pd_ephemeris, on=['gnss_id', 'sv_id'], suffixes=('', '_navdata'))
         # Find difference between ephemeris and gnss_raw timestamp
         merged['time_diff'] = (
-            abs(merged["time"] - merged[f'time_navdata']).astype('timedelta64[ns]'))
-        #merged['time_diff'] = (
-        #    abs(merged["time"] - merged[f'glo_toe']).astype('timedelta64[ns]'))
-        # Find the ephemeris that has the closest timestamp to gnss_raw
+            abs(merged["time"] - merged[f'time_of_ephemeris']).astype('timedelta64[ns]'))
         closest_matches = merged.loc[merged.groupby(["time", 'gnss_id', 'sv_id'])['time_diff'].idxmin()]
     else:
         closest_matches = pd_gnss_raw

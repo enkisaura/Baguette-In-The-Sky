@@ -14,6 +14,9 @@ import math
 # Define GPS epoch (January 6, 1980)
 GPS_EPOCH = Timestamp('1980-01-06T00:00:00', tz='UTC')
 
+# Define Beidou epoch (January 1, 2006)
+BDS_EPOCH = Timestamp("2006-01-01 00:00:00", tz="UTC")
+
 # List of UTC leap seconds (dates when they were introduced)
 LEAP_SECONDS = [
     Timestamp("1981-06-30T23:59:59", tz='UTC'),
@@ -61,6 +64,28 @@ def gps_time_ts_to_utc_ts(gps_time_ts: Timestamp) -> Timestamp:
 
     return utc_time_ts
 
+def beidou_time_ts_to_utc_ts(bei_time_ts: Timestamp) -> Timestamp:
+    """
+    Converts Beidou time to UTC by adding leap seconds since beidou epoch.
+    BDT = UTC + 4s  →  UTC = BDT - 4s
+
+    :param bei_time_ts: Beidou time
+    :return: UTC time
+    """
+    leap_seconds = count_leap_seconds(bei_time_ts) - count_leap_seconds(BDS_EPOCH)
+    return bei_time_ts - Timedelta(leap_seconds, 's')
+
+def utc_ts_ts_to_beidou_time(utc_time_ts: Timestamp) -> Timestamp:
+    """
+    Converts Beidou time to UTC by adding leap seconds since beidou epoch.
+    BDT = UTC + 4s  →  UTC = BDT - 4s
+
+    :param bei_time_ts: Beidou time
+    :return: UTC time
+    """
+    leap_seconds = count_leap_seconds(utc_time_ts) - count_leap_seconds(BDS_EPOCH)
+    return utc_time_ts + Timedelta(leap_seconds, 's')
+
 
 def gps_time_to_timestamp(gps_time: float) -> Timestamp:
     """
@@ -90,6 +115,22 @@ def gps_week_to_timestamp(gps_week: int, tow: float) -> Timestamp:
     gps_time_ts = GPS_EPOCH + Timedelta(gps_week * 7 * 86400, 's') + Timedelta(int(tow * 1e9), 'ns')
 
     utc_time_ts = gps_time_ts_to_utc_ts(gps_time_ts)
+
+    return utc_time_ts
+
+def bei_week_to_timestamp(bei_week: int, tow: float) -> Timestamp:
+    """
+    Converts GPS time (week, seconds of week) to pandas.Timestamp.
+    Precision to the nanosecond (ns).
+    :param gps_week: GPS week number (since January 6, 1980).
+    :param tow: Seconds elapsed since the beginning of the week.
+    :return: The corresponding UTC timestamp.
+    """
+    # Compute Beidou time (ignoring leap seconds). Time of week is converted to nanoseconds to preserve the best
+    # accuracy possible.
+    bei_time_ts = BDS_EPOCH + Timedelta(bei_week * 7 * 86400, 's') + Timedelta(int(tow * 1e9), 'ns')
+
+    utc_time_ts = beidou_time_ts_to_utc_ts(bei_time_ts)
 
     return utc_time_ts
 
@@ -137,6 +178,30 @@ def timestamp_to_gps_tow(ts: Timestamp) -> (int, float):
     tow = (delta.days % 7) * 86400 + delta.seconds + delta.microseconds / 1e6 + delta.nanoseconds / 1e9
 
     return gps_week, tow
+
+def timestamp_to_bei_tow(ts: Timestamp) -> (int, float):
+    """
+    Converts a UTC datetime to bei Time of Week (TOW), considering leap seconds.
+    Precision to the nanosecond (ns).
+    :param ts: UTC datetime
+    :return: (gps week, time of week)
+    """
+    # Ensure the timestamp is timezone-aware
+    ts = ts.tz_convert('UTC') if ts.tzinfo else ts.tz_localize('UTC')
+
+    # Convert UTC to Beidou time
+    bei_time = utc_ts_ts_to_beidou_time(ts)
+
+    # Compute time difference from Beidou epoch
+    delta = bei_time - BDS_EPOCH
+
+    # Compute Beidou Week
+    bei_week = delta.days // 7
+
+    # Compute Time of Week (TOW)
+    tow = (delta.days % 7) * 86400 + delta.seconds + delta.microseconds / 1e6 + delta.nanoseconds / 1e9
+
+    return bei_week, tow
 
 
 def utc_to_gmst_radians(timestamp: Timestamp) -> float:

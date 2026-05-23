@@ -24,7 +24,7 @@ def rinex_nav(filepath):
     :return: BITS ephemeris dataframe
     """
     lost_in_translation = {
-        "Toe": "toe",  # Reference time, ephemeris parameters (s)
+        #"Toe": "toe",  # Reference time, ephemeris parameters (s)
         "sqrtA": "sqrta",  # Square root of the semi-major axis (sqrt(m))
         "Eccentricity": "e",  # Eccentricity (dimensionless)
         "Io": "i0",  # Inclination angle at reference time (semicircles)
@@ -61,31 +61,46 @@ def rinex_nav(filepath):
 
     # Convert time
     pd_ephemeris["time"] = None
-    # GPS
+    pd_ephemeris["time_of_ephemeris"] = None
+    # GPS time system has an 18s bias with respect to UTC
     mask = pd_ephemeris["gnss_id"] == "gps"
     pd_ephemeris.loc[mask, "time"] = (
         pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_gps_time(ts)))
-    # Galileo
+    pd_ephemeris.loc[mask, "time_of_ephemeris"] = pd_ephemeris.loc[mask].apply(lambda row: get_gps_toe(row), axis=1)
+
+
+    # Galileo time system has an 18s bias with respect to UTC
     mask = pd_ephemeris["gnss_id"] == "gal"
     pd_ephemeris.loc[mask, "time"] = (
         pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_gps_time(ts)))
-    # Glonass
+    pd_ephemeris.loc[mask, "time_of_ephemeris"] = pd_ephemeris.loc[mask].apply(lambda row: get_gps_toe(row), axis=1)
+
+    # Glonass is equivalent to UTC (but used to be in UTC+3)
     mask = pd_ephemeris["gnss_id"] == "glo"
     pd_ephemeris.loc[mask, "time"] = (
         pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp(ts)))
-    # Beidou TODO
+    pd_ephemeris.loc[mask, "time_of_ephemeris"] = (
+        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp(ts)))
+
+    # Beidou time system has a 4s bias with respect to UTC
     mask = pd_ephemeris["gnss_id"] == "bei"
     pd_ephemeris.loc[mask, "time"] = (
-        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp(ts)))
+        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_beidou_time(ts)))
+    pd_ephemeris.loc[mask, "time_of_ephemeris"] = pd_ephemeris.loc[mask].apply(lambda row: get_bei_toe(row), axis=1)
 
-    # Convert toe
-    mask = pd_ephemeris["gnss_id"] == "glo"
-    pd_ephemeris["glo_toe"] = None
-    pd_ephemeris.loc[mask, "glo_toe"] = pd_ephemeris.loc[mask].apply(get_toe_glonass, axis=1) #TODO
 
     # Get glo clock corrections
-    pd_ephemeris.loc[mask, "SVclockDrift"] = pd_ephemeris.loc[mask, "SVrelFreqBias"] # TODO
+    mask = pd_ephemeris["gnss_id"] == "glo"
+    pd_ephemeris.loc[mask, "SVclockDrift"] = pd_ephemeris.loc[mask, "SVrelFreqBias"]
     pd_ephemeris["SVclockDriftRate"] = pd_ephemeris["SVclockDriftRate"].fillna(0)
+
+    # Get Galileo time group delay
+    mask = pd_ephemeris["gnss_id"] == "gal"
+    pd_ephemeris.loc[mask, "TGD"] = pd_ephemeris.loc[mask, "BGDe5a"]
+
+    # Get Beidou time group delay
+    mask = pd_ephemeris["gnss_id"] == "bei"
+    pd_ephemeris.loc[mask, "TGD"] = pd_ephemeris.loc[mask, "TGD1"]
 
     # Clean up
     pd_ephemeris = pd_ephemeris.rename(columns=lost_in_translation)
@@ -101,86 +116,30 @@ def rinex_nav(filepath):
     return pd_ephemeris
 
 
-#GLONASS_UTC_OFFSET = 3 * 3600  # GLONASS time = UTC + 3h
-GLONASS_UTC_OFFSET = 3 * 3600  # GLONASS time = UTC + 3h
+def get_gps_toe(row):
+    gps_week = row["time"].gps_week()
+    return GnssTimestamp.from_gps_tow(gps_week, row["Toe"])
 
+def get_bei_toe(row):
+    bei_week = row["time"].bei_week()
+    return GnssTimestamp.from_bei_tow(bei_week, row["Toe"])
 
-def _old_get_toe_glonass(row) -> float:
+def get_toe_beidou(toe_bds: float) -> float:
     """
-    Reconstruit t_e depuis MessageFrameTime (secondes dans la journée GLONASS).
+    Convertit un Toe BeiDou (sec of BDT week) en TOW GPS (sec of GPS week).
 
-    MessageFrameTime = secondes dans la journée courante en GLONASS time (UTC+3h)
-    → convertir en UTC Unix
+    BDT = GPS - 14s  →  toe_gps = toe_bds - 14
+    Les deux semaines démarrent le dimanche 00h00 → même rollover.
+
+    Args:
+        toe_bds : Toe en secondes dans la semaine BDT [0, 604800]
+    Returns:
+        toe_gps : Toe en secondes dans la semaine GPS [0, 604800]
     """
-    # Date du message en UTC (depuis nav.time)
-    t_msg_unix = row["time"].pd_timestamp().timestamp()
+    toe_gps = toe_bds + 14
 
-    # Début de la journée GLONASS (UTC+3h) correspondante
-    import datetime
-    t_msg_dt = datetime.datetime.utcfromtimestamp(t_msg_unix)
+    # Rollover si toe_bds < 14s (rarissime, début de semaine)
+    if toe_gps < 0:
+        toe_gps += 604_800
 
-    # Jour courant en GLONASS time = UTC + 3h
-    t_glonass = t_msg_unix + GLONASS_UTC_OFFSET
-    t_glo_dt = datetime.datetime.utcfromtimestamp(t_glonass)
-
-    # Début du jour GLONASS (minuit Moscou)
-    day_start_glo = datetime.datetime(
-        t_glo_dt.year, t_glo_dt.month, t_glo_dt.day
-    ).timestamp() - GLONASS_UTC_OFFSET  # → en UTC Unix
-
-    # t_e = début du jour GLONASS + MessageFrameTime
-    mft = row["MessageFrameTime"]  # secondes dans la journée [s]
-    t_e = day_start_glo + mft  # UTC Unix [s]
-
-    # Correction si rollover minuit (MessageFrameTime proche de 86400)
-    if t_e - t_msg_unix > 43200: t_e -= 86400
-    if t_e - t_msg_unix < -43200: t_e += 86400
-
-    return GnssTimestamp(t_e, unit='s')
-
-def get_toe_glonass(row) -> float:
-    """
-    Reconstruit t_e depuis MessageFrameTime (secondes dans la journée GLONASS).
-
-    MessageFrameTime = secondes dans la journée courante en GLONASS time (UTC+3h)
-    → convertir en UTC Unix
-    """
-    message_reception_time = copy(row["time"]).pd_timestamp()
-    #message_reception_time = message_reception_time.tz_convert("Europe/Moscow") # Convert to Glonass time
-    days_since_sunday = (message_reception_time.weekday() + 1) % 7
-    week_start = (message_reception_time - Timedelta(days=days_since_sunday)).normalize()
-
-    #message_start_of_day = message_reception_time.normalize() # Get start of day
-
-    toe = week_start + Timedelta(seconds=row["MessageFrameTime"])
-
-    dt = toe - message_reception_time
-    if dt.total_seconds() >  3.5 * 86400: toe -= Timedelta(weeks=1)
-    if dt.total_seconds() < -3.5 * 86400: toe += Timedelta(weeks=1)
-
-    #toe = toe.tz_convert("UTC")
-
-    # Date du message en UTC (depuis nav.time)
-    #t_msg_unix = row["time"].timestamp()
-
-    # Début de la journée GLONASS (UTC+3h) correspondante
-    #t_msg_dt = datetime.datetime.utcfromtimestamp(t_msg_unix)
-
-    # Jour courant en GLONASS time = UTC + 3h
-    #t_glonass = t_msg_unix + GLONASS_UTC_OFFSET
-    #t_glo_dt = datetime.datetime.utcfromtimestamp(t_glonass)
-
-    # Début du jour GLONASS (minuit Moscou)
-    #day_start_glo = datetime.datetime(
-    #    t_glo_dt.year, t_glo_dt.month, t_glo_dt.day
-    #).timestamp() - GLONASS_UTC_OFFSET  # → en UTC Unix
-
-    # t_e = début du jour GLONASS + MessageFrameTime
-    #mft = row["MessageFrameTime"]  # secondes dans la journée [s]
-    #t_e = day_start_glo + mft  # UTC Unix [s]
-
-    # Correction si rollover minuit (MessageFrameTime proche de 86400)
-    #if t_e - t_msg_unix > 43200: t_e -= 86400
-    #if t_e - t_msg_unix < -43200: t_e += 86400
-
-    return GnssTimestamp.from_pd_timestamp(toe)
+    return toe_gps
