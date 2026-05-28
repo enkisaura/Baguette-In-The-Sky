@@ -389,14 +389,14 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, 
 
     pd_glo = pd_gnss[pd_gnss["gnss_id"] == "glo"]
     if not pd_glo.empty and check_dataframe(pd_gnss, glo_ephemeris_required_columns):
-        pd_glo.loc[:, cols] = pd_gnss.apply(
+        pd_glo.loc[:, cols] = pd_glo.apply(
             lambda row: _get_glo_sv_state_row(row, row["emission_time"]), axis=1, result_type="expand").to_numpy()
     else:
         pd_glo = pd.DataFrame()
 
     pd_gps = pd_gnss[pd_gnss["gnss_id"] != "glo"]
     if not pd_gps.empty and check_dataframe(pd_gnss, gps_ephemeris_required_columns):
-        pd_gps.loc[:, cols] = pd_gnss.apply(
+        pd_gps.loc[:, cols] = pd_gps.apply(
             lambda row: _get_sv_state_row(row, row["emission_time"]), axis=1, result_type="expand").to_numpy()
     else:
         pd_gps = pd.DataFrame()
