@@ -88,19 +88,25 @@ def rinex_nav(filepath):
         pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_beidou_time(ts)))
     pd_ephemeris.loc[mask, "time_of_ephemeris"] = pd_ephemeris.loc[mask].apply(lambda row: get_bei_toe(row), axis=1)
 
+    # Get gps clock corrections
+    if "TGD" not in pd_ephemeris.columns:
+        pd_ephemeris["TGD"] = None
 
     # Get glo clock corrections
     mask = pd_ephemeris["gnss_id"] == "glo"
-    pd_ephemeris.loc[mask, "SVclockDrift"] = pd_ephemeris.loc[mask, "SVrelFreqBias"]
-    pd_ephemeris["SVclockDriftRate"] = pd_ephemeris["SVclockDriftRate"].fillna(0)
+    if mask.any():
+        pd_ephemeris.loc[mask, "SVclockDrift"] = pd_ephemeris.loc[mask, "SVrelFreqBias"]
+        pd_ephemeris["SVclockDriftRate"] = pd_ephemeris["SVclockDriftRate"].fillna(0)
 
     # Get Galileo time group delay
     mask = pd_ephemeris["gnss_id"] == "gal"
-    pd_ephemeris.loc[mask, "TGD"] = pd_ephemeris.loc[mask, "BGDe5a"]
+    if mask.any():
+        pd_ephemeris.loc[mask, "TGD"] = pd_ephemeris.loc[mask, "BGDe5a"]
 
     # Get Beidou time group delay
     mask = pd_ephemeris["gnss_id"] == "bei"
-    pd_ephemeris.loc[mask, "TGD"] = pd_ephemeris.loc[mask, "TGD1"]
+    if mask.any():
+        pd_ephemeris.loc[mask, "TGD"] = pd_ephemeris.loc[mask, "TGD1"]
 
     # Clean up
     pd_ephemeris = pd_ephemeris.rename(columns=lost_in_translation)

@@ -429,7 +429,7 @@ def retrieve_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = N
     # Check if ephemeris is already retrieved
     gps_present = check_dataframe(pd_gnss_raw, gps_ephemeris_required_columns, with_warning=False)
     glo_present = check_dataframe(pd_gnss_raw, glo_ephemeris_required_columns, with_warning=False)
-    if not gps_present or not glo_present:
+    if not gps_present and not glo_present:
         if pd_ephemeris is None:
             if ephem_filepath is None:
                 pd_ephemeris = ephemeris_loader(pd_gnss_raw["time"].iloc[0]) # Get ephemeris from the internet
