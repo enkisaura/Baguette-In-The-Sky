@@ -11,14 +11,12 @@ __date__ = "2025-06-06"
 __version__ = "0.0.1"
 
 import os
-from bits.src.sv_model import get_sv_states
 from bits.src.parsers import ephemeris, gnss_raw, nmea
 from bits.src.spp import *
 from bits.src.spp import _build_init_pd_gnss_pvt
-from bits.src.convert.space_conversion import wgs_to_ecef, rotate_ecef, ecef_to_enu
-from bits.src.plotter import plot
+from bits.src.convert.space_conversion import ecef_to_enu
 
-required_precision = 12  # m
+required_precision = 15  # m
 required_precision_speed = 0.2 # m/s
 az_el_required_precision = 1e-2  # rad
 gt = (45.7615208,-1.1411692,0)

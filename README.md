@@ -125,8 +125,7 @@ https://gssc.esa.int/navipedia/index.php?title=NeQuick_Ionospheric_Model
 
 ### `compute_relativistic_clock_correction(x: float, y: float, z: float, vx: float, vy: float, vz: float) -> float`
 
-Correction relativiste : dt_rel = -2 · (r · v) / c²
-Identique à GPS, à appliquer sur le temps satellite.
+Relativistic clock corrections : dt_rel = -2 · (r · v) / c²
 
 ### `compute_satellite_clock_correction(dt, a0, a1, a2) -> float`
 
@@ -174,15 +173,6 @@ Compute clock corrections using a pd.Dataframe ephemeris from the BITS ephemeris
 :param pd_gnss_raw: GNSS raw dataframe from BITS parser
 :param pd_ephemeris: ephemeris dataframe from BITS parser
 :return: raw data with corrected pseudoranges and corresponding clock corrections
-
-### `old_compute_relativistic_clock_correction(e, sqrta, eccentric_anomaly)`
-
-Compute relativistic satellite clock correction.
-source: https://gssc.esa.int/navipedia/index.php?title=Relativistic_Clock_Correction
-:param e: Eccentricity (dimensionless)
-:param sqrta: Square root of the semi-major axis (sqrt(m))
-:param eccentric_anomaly: Eccentric anomaly, use sv_model.compute_eccentric_anomaly
-:return: Relativistic clock correction (s)
 
 
 ---
@@ -374,7 +364,7 @@ Computes geometry matrices using dataframes.
 :param pd_approx_pos: GNSS pvt dataframe (at least "time", "x_rx_m", "y_rx_m", "z_rx_m")
 :return: pd_gnss_pvt like dataframe with geometry matrices
 
-### `get_position_estimate(pd_gnss_raw: DataFrame, pd_ephemeris: DataFrame = None, ephem_filepath: str = None, approx_pvt: tuple = (0, 0, 0), verbose = False) -> DataFrame`
+### `get_position_estimate(pd_gnss_raw: DataFrame, pd_ephemeris: DataFrame = None, ephem_filepath: str = None, approx_pvt: tuple = (0, 0, 0), verbose = False) -> tuple`
 
 Computes position estimate using OLS and clock and atmospheric corrections.
 source: https://gssc.esa.int/navipedia/index.php?title=GNSS_Measurements_Modelling
@@ -411,14 +401,6 @@ Y = G @ X
 Used to find sv states
 
 ---
-
-### `compute_eccentric_anomaly(pd_ephemeris_row: Series, time: GnssTimestamp, ek_iterations = 5)`
-
-Compute eccentric anomaly for a specific satellite vehicle at a specific time.
-:param pd_ephemeris_row: Satellite ephemeris. Use a pd.Series parsed with the BITS ephemeris parser.
-:param time: Time at which the satellite's position should be computed
-:param ek_iterations: Number of iterations to compute the eccentric anomaly
-:return: Eccentric anomaly
 
 ### `ephemeris_loader(timestamp: GnssTimestamp)`
 
@@ -595,7 +577,7 @@ Functions for time conversions
 
 ### `bei_week_to_timestamp(bei_week: int, tow: float) -> Timestamp`
 
-Converts GPS time (week, seconds of week) to pandas.Timestamp.
+Converts BDT time (week, seconds of week) to pandas.Timestamp.
 Precision to the nanosecond (ns).
 :param gps_week: GPS week number (since January 6, 1980).
 :param tow: Seconds elapsed since the beginning of the week.
@@ -689,18 +671,6 @@ _No documentation provided._
 
 _No documentation provided._
 
-### `get_toe_beidou(toe_bds: float) -> float`
-
-Convertit un Toe BeiDou (sec of BDT week) en TOW GPS (sec of GPS week).
-
-BDT = GPS - 14s  →  toe_gps = toe_bds - 14
-Les deux semaines démarrent le dimanche 00h00 → même rollover.
-
-Args:
-    toe_bds : Toe en secondes dans la semaine BDT [0, 604800]
-Returns:
-    toe_gps : Toe en secondes dans la semaine GPS [0, 604800]
-
 ### `rinex_nav(filepath)`
 
 Parse rinex nav into pandas dataframe using georinex.
@@ -732,6 +702,24 @@ _No documentation provided._
 Parse skydel raw data to pandas Dataframe.
 :param filepath: Path of the file
 :return: BITS raw dataframe
+
+
+---
+
+
+## Module `bits.src.parsers.nmea`
+
+Parse NMEA files
+
+---
+
+### `gga(filepath)`
+
+_No documentation provided._
+
+### `rmc(filepath)`
+
+_No documentation provided._
 
 
 ---

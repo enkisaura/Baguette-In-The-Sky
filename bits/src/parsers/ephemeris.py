@@ -24,7 +24,6 @@ def rinex_nav(filepath):
     :return: BITS ephemeris dataframe
     """
     lost_in_translation = {
-        #"Toe": "toe",  # Reference time, ephemeris parameters (s)
         "sqrtA": "sqrta",  # Square root of the semi-major axis (sqrt(m))
         "Eccentricity": "e",  # Eccentricity (dimensionless)
         "Io": "i0",  # Inclination angle at reference time (semicircles)
@@ -129,23 +128,3 @@ def get_gps_toe(row):
 def get_bei_toe(row):
     bei_week = row["time"].bei_week()
     return GnssTimestamp.from_bei_tow(bei_week, row["Toe"])
-
-def get_toe_beidou(toe_bds: float) -> float:
-    """
-    Convertit un Toe BeiDou (sec of BDT week) en TOW GPS (sec of GPS week).
-
-    BDT = GPS - 14s  →  toe_gps = toe_bds - 14
-    Les deux semaines démarrent le dimanche 00h00 → même rollover.
-
-    Args:
-        toe_bds : Toe en secondes dans la semaine BDT [0, 604800]
-    Returns:
-        toe_gps : Toe en secondes dans la semaine GPS [0, 604800]
-    """
-    toe_gps = toe_bds + 14
-
-    # Rollover si toe_bds < 14s (rarissime, début de semaine)
-    if toe_gps < 0:
-        toe_gps += 604_800
-
-    return toe_gps

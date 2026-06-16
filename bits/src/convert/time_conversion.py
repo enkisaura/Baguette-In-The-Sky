@@ -120,7 +120,7 @@ def gps_week_to_timestamp(gps_week: int, tow: float) -> Timestamp:
 
 def bei_week_to_timestamp(bei_week: int, tow: float) -> Timestamp:
     """
-    Converts GPS time (week, seconds of week) to pandas.Timestamp.
+    Converts BDT time (week, seconds of week) to pandas.Timestamp.
     Precision to the nanosecond (ns).
     :param gps_week: GPS week number (since January 6, 1980).
     :param tow: Seconds elapsed since the beginning of the week.

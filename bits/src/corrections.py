@@ -15,7 +15,7 @@ import numpy as np
 import math
 import warnings
 from typing import Literal
-from bits.src.sv_model import retrieve_ephemeris, compute_eccentric_anomaly
+from bits.src.sv_model import retrieve_ephemeris
 from bits.src import const
 from bits.src.utils import check_dataframe
 
@@ -33,23 +33,10 @@ def compute_satellite_clock_correction(dt, a0, a1, a2) -> float:
     satellite_clock_correction = a0 + a1*dt + np.sign(dt) * a2*(dt**2)
     return satellite_clock_correction
 
-def old_compute_relativistic_clock_correction(e, sqrta, eccentric_anomaly):
-    """
-    Compute relativistic satellite clock correction.
-    source: https://gssc.esa.int/navipedia/index.php?title=Relativistic_Clock_Correction
-    :param e: Eccentricity (dimensionless)
-    :param sqrta: Square root of the semi-major axis (sqrt(m))
-    :param eccentric_anomaly: Eccentric anomaly, use sv_model.compute_eccentric_anomaly
-    :return: Relativistic clock correction (s)
-    """
-    relativistic_clock_correction = const.F * e * sqrta * np.sin(eccentric_anomaly)
-    return relativistic_clock_correction
-
 def compute_relativistic_clock_correction(x: float, y: float, z: float,
                              vx: float, vy: float, vz: float) -> float:
     """
-    Correction relativiste : dt_rel = -2 · (r · v) / c²
-    Identique à GPS, à appliquer sur le temps satellite.
+    Relativistic clock corrections : dt_rel = -2 · (r · v) / c²
     """
     r_dot_v = x*vx + y*vy + z*vz
     return -2.0 * r_dot_v / const.C**2
@@ -92,10 +79,6 @@ def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
                                                                                 pd_gnss["clock_drift_rate"]).fillna(0)
 
     # 2) Compute relativistic clock corrections
-    #if "eccentric_anomaly" not in pd_gnss.columns:
-    #    pd_gnss["eccentric_anomaly"] = pd_gnss.apply(
-    #        lambda row: compute_eccentric_anomaly(row, row["time"], ek_iterations=5)[0], axis=1)
-
     pd_gnss["relat_clock_corr_m"] = pd_gnss.apply(
        lambda row: const.C * compute_relativistic_clock_correction(row["x_sv_m"], row["y_sv_m"], row["z_sv_m"],
                                                                    row["vx_sv_mps"], row["vy_sv_mps"], row["vz_sv_mps"])
@@ -135,10 +118,8 @@ def compute_klobuchar(rx_lat: float, rx_lon: float, tow: float, sv_elevation: fl
     :return: Ionospheric delay (m)
     """
     # Convert to semicircles
-    rx_lat = math.radians(rx_lat)# / math.pi
-    rx_lon = math.radians(rx_lon)# / math.pi
-    #sv_elevation = sv_elevation / math.pi
-    #sv_azimuth = sv_azimuth / math.pi
+    rx_lat = math.radians(rx_lat)
+    rx_lon = math.radians(rx_lon)
 
     # 1. Calculate the earth-centred angle (elevation in semicircles).
     earth_centered_angle = (0.0137 / (sv_elevation + 0.11)) - 0.022
