@@ -17,6 +17,7 @@ dependencies = [
     "georinex",
     "pyproj",
     "folium",
+    "tzlocal",
 ]
 requires-python = ">= 3.12"
 
