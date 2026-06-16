@@ -123,14 +123,10 @@ not implemented
 https://gssc.esa.int/navipedia/index.php?title=NeQuick_Ionospheric_Model
 :return:
 
-### `compute_relativistic_clock_correction(e, sqrta, eccentric_anomaly)`
+### `compute_relativistic_clock_correction(x: float, y: float, z: float, vx: float, vy: float, vz: float) -> float`
 
-Compute relativistic satellite clock correction.
-source: https://gssc.esa.int/navipedia/index.php?title=Relativistic_Clock_Correction
-:param e: Eccentricity (dimensionless)
-:param sqrta: Square root of the semi-major axis (sqrt(m))
-:param eccentric_anomaly: Eccentric anomaly, use sv_model.compute_eccentric_anomaly
-:return: Relativistic clock correction (s)
+Correction relativiste : dt_rel = -2 · (r · v) / c²
+Identique à GPS, à appliquer sur le temps satellite.
 
 ### `compute_satellite_clock_correction(dt, a0, a1, a2) -> float`
 
@@ -179,6 +175,15 @@ Compute clock corrections using a pd.Dataframe ephemeris from the BITS ephemeris
 :param pd_ephemeris: ephemeris dataframe from BITS parser
 :return: raw data with corrected pseudoranges and corresponding clock corrections
 
+### `old_compute_relativistic_clock_correction(e, sqrta, eccentric_anomaly)`
+
+Compute relativistic satellite clock correction.
+source: https://gssc.esa.int/navipedia/index.php?title=Relativistic_Clock_Correction
+:param e: Eccentricity (dimensionless)
+:param sqrta: Square root of the semi-major axis (sqrt(m))
+:param eccentric_anomaly: Eccentric anomaly, use sv_model.compute_eccentric_anomaly
+:return: Relativistic clock correction (s)
+
 
 ---
 
@@ -220,12 +225,29 @@ Plots locations on an open street map from a Dataframe. Dataframe must include c
 :param plot_name: Name of the dataset
 :return: folium map
 
-### `plot3d(data)`
+### `plot3d(pd_gnss: DataFrame, sv_pos_ecef_cols: tuple = ('x_sv_m', 'y_sv_m', 'z_sv_m'), sv_name_col: str | None = 'sv_id', rx_pos_ecef_cols: tuple | None = ('x_rx_m', 'y_rx_m', 'z_rx_m'), plot_all_timestamps: bool = False)`
 
-Traceurs 3d de satellites
+3D plot of GNSS satellites and receiver in ECEF coordinates.
 
-:param data: [liste_x_ecef, liste_y_ecef, liste_z_ecef, liste_noms]
-:return:
+:param pd_gnss: GNSS dataframe.
+:param sv_pos_ecef_cols: Columns containing satellite ECEF coordinates.
+:param sv_name_col: Satellite name column.
+:param rx_pos_ecef_cols: Receiver ECEF coordinate columns.
+:param plot_all_timestamps: If False, keeps only first occurrence of each satellite.
+:return: fig, ax
+
+### `skyplot(pd_gnss: DataFrame, az_col: str = 'azimuth_rad', el_col: str = 'elevation_rad', sv_name_col: str | None = 'sv_id', degrees: bool = False, plot_all_timestamps: bool = True, fig: matplotlib.figure.Figure | None = None)`
+
+GNSS skyplot
+
+:param pd_gnss: GNSS dataframe.
+:param az_col: Column containing satellite azimuth (0 is north).
+:param el_col: Column containing satellite elevation (0 is zenith).
+:param sv_name_col: Column containing satellite name.
+:param degrees: Set to True for azimuth and elevation in degrees, False for radians.
+:param plot_all_timestamps: If False, keeps only first occurrence of each satellite.
+:param fig: Pyplot figure to plot the skyplot on.
+:return: fig, ax
 
 
 ---
@@ -250,6 +272,14 @@ for panda's Timestamp functions.
     Accuracy down to the nanoseconds, unlike the microsecond accuracy of datetime. Easier to use than np.datetime64
     and takes timezone into account.
     https://pandas.pydata.org/docs/reference/api/pandas.Timestamp.html
+
+### `bei_tow(self)`
+
+_No documentation provided._
+
+### `bei_week(self) -> int`
+
+_No documentation provided._
 
 ### `check_utc(self)`
 
@@ -344,7 +374,7 @@ Computes geometry matrices using dataframes.
 :param pd_approx_pos: GNSS pvt dataframe (at least "time", "x_rx_m", "y_rx_m", "z_rx_m")
 :return: pd_gnss_pvt like dataframe with geometry matrices
 
-### `get_position_estimate(pd_gnss_raw: DataFrame, pd_ephemeris: DataFrame = None, ephem_filepath: str = None, approx_pvt: tuple = (0, 0, 0)) -> DataFrame`
+### `get_position_estimate(pd_gnss_raw: DataFrame, pd_ephemeris: DataFrame = None, ephem_filepath: str = None, approx_pvt: tuple = (0, 0, 0), verbose = False) -> DataFrame`
 
 Computes position estimate using OLS and clock and atmospheric corrections.
 source: https://gssc.esa.int/navipedia/index.php?title=GNSS_Measurements_Modelling
@@ -563,6 +593,22 @@ Functions for time conversions
 
 ---
 
+### `bei_week_to_timestamp(bei_week: int, tow: float) -> Timestamp`
+
+Converts GPS time (week, seconds of week) to pandas.Timestamp.
+Precision to the nanosecond (ns).
+:param gps_week: GPS week number (since January 6, 1980).
+:param tow: Seconds elapsed since the beginning of the week.
+:return: The corresponding UTC timestamp.
+
+### `beidou_time_ts_to_utc_ts(bei_time_ts: Timestamp) -> Timestamp`
+
+Converts Beidou time to UTC by adding leap seconds since beidou epoch.
+BDT = UTC + 4s  →  UTC = BDT - 4s
+
+:param bei_time_ts: Beidou time
+:return: UTC time
+
 ### `count_leap_seconds(dt: Timestamp) -> int`
 
 Counts the number of leap seconds that have occurred up to a given UTC datetime.
@@ -590,6 +636,13 @@ Precision to the nanosecond (ns).
 :param tow: Seconds elapsed since the beginning of the week.
 :return: The corresponding UTC timestamp.
 
+### `timestamp_to_bei_tow(ts: Timestamp) -> (<class 'int'>, <class 'float'>)`
+
+Converts a UTC datetime to bei Time of Week (TOW), considering leap seconds.
+Precision to the nanosecond (ns).
+:param ts: UTC datetime
+:return: (gps week, time of week)
+
 ### `timestamp_to_gps_time(ts: Timestamp) -> float`
 
 Convert a UTC timestamp to GPS time (seconds since GPS epoch), accounting for leap seconds.
@@ -610,6 +663,14 @@ Converts a UTC timestamp to Greenwich Mean Sidereal Time (GMST) in radians.
 :param timestamp: pd.Timestamp (must be in UTC)
 :return: GMST in radians (0 - 2π)
 
+### `utc_ts_ts_to_beidou_time(utc_time_ts: Timestamp) -> Timestamp`
+
+Converts Beidou time to UTC by adding leap seconds since beidou epoch.
+BDT = UTC + 4s  →  UTC = BDT - 4s
+
+:param bei_time_ts: Beidou time
+:return: UTC time
+
 
 ---
 
@@ -619,6 +680,26 @@ Converts a UTC timestamp to Greenwich Mean Sidereal Time (GMST) in radians.
 Ephemeris parser to be used with baguette in the sky
 
 ---
+
+### `get_bei_toe(row)`
+
+_No documentation provided._
+
+### `get_gps_toe(row)`
+
+_No documentation provided._
+
+### `get_toe_beidou(toe_bds: float) -> float`
+
+Convertit un Toe BeiDou (sec of BDT week) en TOW GPS (sec of GPS week).
+
+BDT = GPS - 14s  →  toe_gps = toe_bds - 14
+Les deux semaines démarrent le dimanche 00h00 → même rollover.
+
+Args:
+    toe_bds : Toe en secondes dans la semaine BDT [0, 604800]
+Returns:
+    toe_gps : Toe en secondes dans la semaine GPS [0, 604800]
 
 ### `rinex_nav(filepath)`
 
@@ -641,6 +722,10 @@ GNSS raw data parser to be used with baguette in the sky
 Parse micdrop raw data to pandas Dataframe.
 :param filepath: Path of the file
 :return: BITS raw dataframe
+
+### `rinex_obs(filepath: str) -> DataFrame`
+
+_No documentation provided._
 
 ### `skydel_raw(filepath: str) -> DataFrame`
 
