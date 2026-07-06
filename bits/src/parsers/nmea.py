@@ -8,7 +8,15 @@ import numpy as np
 from bits.src.reference_frame_object import GnssTimestamp
 from bits.src.convert.space_conversion import wgs_to_ecef
 
-def gga(filepath):
+def gga(filepath:str) -> pd.DataFrame:
+    """
+    Parse GGA from nmea text file. Requires RMC inside the NMEA file to get the date.
+
+    source: https://docs.novatel.com/OEM7/Content/Logs/GPGGA.htm
+
+    :param filepath: Path of the NMEA file
+    :return: Dataframe with parsed GGA data
+    """
     records = []
 
     current_date = None
@@ -104,7 +112,15 @@ def gga(filepath):
     return pd.DataFrame(records)
 
 
-def rmc(filepath):
+def rmc(filepath: str) -> pd.DataFrame:
+    """
+    Parse RMC from nmea text file
+
+    source: https://docs.novatel.com/OEM7/Content/Logs/GPRMC.htm
+
+    :param filepath: Path of the NMEA file
+    :return: Dataframe with parsed RMC data
+    """
     records = []
 
     with open(filepath, "r") as f:
