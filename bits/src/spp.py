@@ -315,16 +315,17 @@ def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: 
                         pd_gnss_approx_pvt.at[index, "z_rx_m"] += float(np_estimate_delta[2][0])
                         pd_gnss_approx_pvt.at[index, "b_rx_m"] += float(np_estimate_delta[3][0])
 
-                        pd_gnss_approx_pvt.at[index, "cov_xx_rx_m"] = float(cov[0][0])
-                        pd_gnss_approx_pvt.at[index, "cov_yx_rx_m"] = float(cov[0][1])
-                        pd_gnss_approx_pvt.at[index, "cov_zx_rx_m"] = float(cov[0][2])
-                        pd_gnss_approx_pvt.at[index, "cov_bx_rx_m"] = float(cov[0][3])
-                        pd_gnss_approx_pvt.at[index, "cov_yy_rx_m"] = float(cov[1][1])
-                        pd_gnss_approx_pvt.at[index, "cov_zy_rx_m"] = float(cov[1][2])
-                        pd_gnss_approx_pvt.at[index, "cov_by_rx_m"] = float(cov[1][3])
-                        pd_gnss_approx_pvt.at[index, "cov_zz_rx_m"] = float(cov[2][2])
-                        pd_gnss_approx_pvt.at[index, "cov_bz_rx_m"] = float(cov[2][3])
-                        pd_gnss_approx_pvt.at[index, "cov_bb_rx_m"] = float(cov[3][3])
+                        if weights_column in pd_gnss_raw_at_timestamp.columns:
+                            pd_gnss_approx_pvt.at[index, "cov_xx_rx_m"] = float(cov[0][0])
+                            pd_gnss_approx_pvt.at[index, "cov_yx_rx_m"] = float(cov[0][1])
+                            pd_gnss_approx_pvt.at[index, "cov_zx_rx_m"] = float(cov[0][2])
+                            pd_gnss_approx_pvt.at[index, "cov_bx_rx_m"] = float(cov[0][3])
+                            pd_gnss_approx_pvt.at[index, "cov_yy_rx_m"] = float(cov[1][1])
+                            pd_gnss_approx_pvt.at[index, "cov_zy_rx_m"] = float(cov[1][2])
+                            pd_gnss_approx_pvt.at[index, "cov_by_rx_m"] = float(cov[1][3])
+                            pd_gnss_approx_pvt.at[index, "cov_zz_rx_m"] = float(cov[2][2])
+                            pd_gnss_approx_pvt.at[index, "cov_bz_rx_m"] = float(cov[2][3])
+                            pd_gnss_approx_pvt.at[index, "cov_bb_rx_m"] = float(cov[3][3])
 
                         pd_gnss_approx_pvt.at[index, "DOP"] = float(dop)
 
@@ -345,21 +346,22 @@ def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: 
                         try:
                             np_speed_estimate, cov, _ = (
                                 compute_speed_estimate(pr_rate, np_geometry_matrix, sv_speed, np_weight))
-                            pd_gnss_approx_pvt.at[index, "vx_rx_mps"] = np_speed_estimate[0][0]
-                            pd_gnss_approx_pvt.at[index, "vy_rx_mps"] = np_speed_estimate[1][0]
-                            pd_gnss_approx_pvt.at[index, "vz_rx_mps"] = np_speed_estimate[2][0]
-                            pd_gnss_approx_pvt.at[index, "vb_rx_mps"] = np_speed_estimate[3][0]
+                            pd_gnss_approx_pvt.at[index, "vx_rx_mps"] = float(np_speed_estimate[0][0])
+                            pd_gnss_approx_pvt.at[index, "vy_rx_mps"] = float(np_speed_estimate[1][0])
+                            pd_gnss_approx_pvt.at[index, "vz_rx_mps"] = float(np_speed_estimate[2][0])
+                            pd_gnss_approx_pvt.at[index, "vb_rx_mps"] = float(np_speed_estimate[3][0])
 
-                            pd_gnss_approx_pvt.at[index, "cov_vxvx_rx_m"] = float(cov[0][0])
-                            pd_gnss_approx_pvt.at[index, "cov_vyvx_rx_m"] = float(cov[0][1])
-                            pd_gnss_approx_pvt.at[index, "cov_vzvx_rx_m"] = float(cov[0][2])
-                            pd_gnss_approx_pvt.at[index, "cov_vbvx_rx_m"] = float(cov[0][3])
-                            pd_gnss_approx_pvt.at[index, "cov_vyvy_rx_m"] = float(cov[1][1])
-                            pd_gnss_approx_pvt.at[index, "cov_vzvy_rx_m"] = float(cov[1][2])
-                            pd_gnss_approx_pvt.at[index, "cov_vbvy_rx_m"] = float(cov[1][3])
-                            pd_gnss_approx_pvt.at[index, "cov_vzvz_rx_m"] = float(cov[2][2])
-                            pd_gnss_approx_pvt.at[index, "cov_vbvz_rx_m"] = float(cov[2][3])
-                            pd_gnss_approx_pvt.at[index, "cov_vbvb_rx_m"] = float(cov[3][3])
+                            if weights_column in pd_gnss_raw_at_timestamp.columns:
+                                pd_gnss_approx_pvt.at[index, "cov_vxvx_rx_mps"] = float(cov[0][0])
+                                pd_gnss_approx_pvt.at[index, "cov_vyvx_rx_mps"] = float(cov[0][1])
+                                pd_gnss_approx_pvt.at[index, "cov_vzvx_rx_mps"] = float(cov[0][2])
+                                pd_gnss_approx_pvt.at[index, "cov_vbvx_rx_mps"] = float(cov[0][3])
+                                pd_gnss_approx_pvt.at[index, "cov_vyvy_rx_mps"] = float(cov[1][1])
+                                pd_gnss_approx_pvt.at[index, "cov_vzvy_rx_mps"] = float(cov[1][2])
+                                pd_gnss_approx_pvt.at[index, "cov_vbvy_rx_mps"] = float(cov[1][3])
+                                pd_gnss_approx_pvt.at[index, "cov_vzvz_rx_mps"] = float(cov[2][2])
+                                pd_gnss_approx_pvt.at[index, "cov_vbvz_rx_mps"] = float(cov[2][3])
+                                pd_gnss_approx_pvt.at[index, "cov_vbvb_rx_mps"] = float(cov[3][3])
                         except PositionEstimationError as e:
                             txt = f"Cannot compute speed at timestamp {timestamp}: {e}"
                             warnings.warn(txt)
