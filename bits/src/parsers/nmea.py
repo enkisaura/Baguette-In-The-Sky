@@ -94,7 +94,8 @@ def gga(filepath:str) -> pd.DataFrame:
                 gnss_timestamp = GnssTimestamp(unix_time, unit='s')
 
                 records.append({
-                    "timestamp": gnss_timestamp,
+                    "time": gnss_timestamp,
+                    "unix_time": unix_time,
                     "lat":         lat_deg,
                     "lon":         lon_deg,
                     "altitude_m":  altitude,
@@ -161,7 +162,8 @@ def rmc(filepath: str) -> pd.DataFrame:
                 cog_rad = -np.deg2rad(cog_deg) if cog_deg is not None else None
 
                 records.append({
-                    "timestamp": gnss_timestamp,
+                    "time": gnss_timestamp,
+                    "unix_time": unix_time,
                     "lat":         lat_deg,
                     "lon":         lon_deg,
                     "x_rx_m":      x_ecef,

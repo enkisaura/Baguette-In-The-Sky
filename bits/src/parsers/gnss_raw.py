@@ -42,9 +42,10 @@ def skydel_raw(filepath: str) -> pandas.DataFrame:
     filename = os.path.basename(filepath)
     sv_id = filename.split(" ")[-1].split(".")[0]  # TODO normer nom sv -> sv id ou prn number ??
     gnss_id = filename[0]
-    pd_data["sv_id"] = int(sv_id)
+    pd_data["prn_id"] = int(sv_id)
     pd_data["gnss_id"] = gnss_id
     pd_data["gnss_id"] = pd_data["gnss_id"].apply(normalize_gnss_constellation)
+    pd_data["sv_id"] = pd_data["gnss_id"] + pd_data["prn_id"].astype(str) # Add sv_id
 
     pd_data["time"] = \
         pd_data.apply(lambda row: GnssTimestamp.from_gps_tow(row["GPS Week Number"], row["GPS TOW"]), axis=1)
@@ -64,7 +65,7 @@ def micdrop_raw(filepath: str) -> pandas.DataFrame:
         "timestamp": "time",
         "pseudorange": 'pr_m', # Exact range
         "doppler": 'doppler_hz',
-        "sv_id": "sv_id",
+        "sv_id": "prn_id",
         "sv_const": "gnss_id"
     }
 
@@ -81,10 +82,13 @@ def micdrop_raw(filepath: str) -> pandas.DataFrame:
         pd_data["doppler_hz"].apply(lambda doppler: doppler_to_pr_rate(doppler)) # TODO works only with L1...
 
     # Convert sv_id to int
-    pd_data["sv_id"] = pd_data["sv_id"].apply(int)
+    pd_data["prn_id"] = pd_data["prn_id"].apply(int)
 
     # Normalize GNSS constellation name
     pd_data["gnss_id"] = pd_data["gnss_id"].apply(normalize_gnss_constellation)
+
+    # Add sv_id
+    pd_data["sv_id"] = pd_data["gnss_id"] + pd_data["prn_id"].astype(str)
 
     return pd_data
 
@@ -111,8 +115,11 @@ def rinex_obs(filepath: str) -> pandas.DataFrame:
     obs_df["gnss_id"] = obs_df["gnss_id"].apply(normalize_gnss_constellation)
 
     # Get PRN #
-    obs_df["sv_id"] = obs_df["sv"].str[1:]
-    obs_df["sv_id"] = obs_df["sv_id"].astype(int)
+    obs_df["prn_id"] = obs_df["sv"].str[1:]
+    obs_df["prn_id"] = obs_df["prn_id"].astype(int)
+
+    # Add sv_id
+    obs_df["sv_id"] = obs_df["gnss_id"] + obs_df["prn_id"].astype(str)
 
     # Get pseudorange
     obs_df["pr_m"] = obs_df["C1C"].combine_first(obs_df["C2I"])
@@ -126,7 +133,7 @@ def rinex_obs(filepath: str) -> pandas.DataFrame:
     obs_df["CN0"] = obs_df["S1C"].combine_first(obs_df["S2I"])
 
     # Clean up
-    obs_df = obs_df[["time", "gnss_id", "sv_id", "pr_m", "doppler_hz", "pr_rate_mps", "CN0"]]
+    obs_df = obs_df[["time", "gnss_id", "sv_id", "prn_id", "pr_m", "doppler_hz", "pr_rate_mps", "CN0"]]
     obs_df = obs_df.dropna()
     obs_df = obs_df.reset_index(drop=True)
 
