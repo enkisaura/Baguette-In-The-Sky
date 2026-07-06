@@ -425,7 +425,8 @@ def _correct_rx_clock(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> (
 
 
 def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, ephem_filepath: str = None,
-                          approx_pvt: tuple[float, float, float]=(0, 0, 0), verbose=False) -> pd.DataFrame:
+                          approx_pvt: tuple[float, float, float]=(0, 0, 0), verbose=False) \
+        -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Computes position estimate using OLS and clock and atmospheric corrections.
     source: https://gssc.esa.int/navipedia/index.php?title=GNSS_Measurements_Modelling
@@ -435,6 +436,17 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
     :param approx_pvt: Position (ECEF meters) at initialization (default -> centre of earth)
     :return: GNSS pvt dataframe, corrected GNSS raw dataframe
     """
+    # Multi constellation SPP is not yet available
+    glo_present = (pd_gnss_raw["gnss_id"] == "glo").any()
+    gal_present = (pd_gnss_raw["gnss_id"] == "gal").any()
+    gps_present = (pd_gnss_raw["gnss_id"] == "gps").any()
+    bei_present = (pd_gnss_raw["gnss_id"] == "bei").any()
+
+    if sum([glo_present, gal_present, gps_present, bei_present]) > 1:
+        raise ValueError("Single Point Positioning is not yet available for multi constellation. "
+                         "Please keep only one in raw data")
+
+
     if verbose:
         print("Computing position estimate...")
 

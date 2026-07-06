@@ -95,7 +95,7 @@ def plot3d(pd_gnss:pd.DataFrame, sv_pos_ecef_cols: tuple=("x_sv_m", "y_sv_m", "z
     return fig, ax
 
 
-def plot(pd_gnss_pvt: pd.DataFrame, m:folium.map=None, plot_name: str = "Plot", plot_rail=True) -> folium.map:
+def plot(pd_gnss_pvt: pd.DataFrame, m:folium.map=None, plot_name: str = "Plot") -> folium.map:
     """
     Plots locations on an open street map from a Dataframe. Dataframe must include columns "lat" and "lon".
     :param pd_gnss_pvt: Dataframe containing columns "lat" and "lon".
@@ -119,38 +119,6 @@ def plot(pd_gnss_pvt: pd.DataFrame, m:folium.map=None, plot_name: str = "Plot", 
             folium.Marker(location=(lat, lon), popup=plot_name).add_to(m)
     else: # Use light plotting method
         FastMarkerCluster(locations).add_to(m)
-
-    # Add railway lines using Overpass API
-    if locations and plot_rail:
-        # Define bounding box based on GNSS data
-        lats = pd_gnss_pvt['lat']
-        lons = pd_gnss_pvt['lon']
-        bbox = f"{lats.min() - 0.01},{lons.min() - 0.01},{lats.max() + 0.01},{lons.max() + 0.01}"
-
-        query = f"""
-        [out:json][timeout:25];
-        (
-          way["railway"="rail"]({bbox});
-        );
-        out body;
-        >;
-        out skel qt;
-        """
-        url = "https://overpass-api.de/api/interpreter"
-        response = requests.post(url, data=query)
-        if response.status_code == 200:
-            data = response.json()
-
-            # Extract node locations
-            nodes = {el['id']: (el['lat'], el['lon']) for el in data['elements'] if el['type'] == 'node'}
-
-            # Plot railway ways
-            for el in data['elements']:
-                if el['type'] == 'way':
-                    latlon = [nodes[node_id] for node_id in el['nodes'] if node_id in nodes]
-                    folium.PolyLine(latlon, color='black', weight=2.5, opacity=0.8, tooltip="Railway").add_to(m)
-        else:
-            print("Failed to load railway data from Overpass API.")
 
     m.save("plot.html")
     print("Map saved as 'plot.html'")

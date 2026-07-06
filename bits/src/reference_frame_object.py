@@ -114,6 +114,12 @@ class GnssTimestamp:
         return cls(timestamp_str)
 
     @classmethod
+    def from_pd_timestamp_beidou_time(cls, pd_ts_beidou_time: Timestamp):
+        pd_ts = time_conversion.beidou_time_ts_to_utc_ts(pd_ts_beidou_time)
+        timestamp_str = pd_ts.isoformat(timespec="nanoseconds")
+        return cls(timestamp_str)
+
+    @classmethod
     def from_gps_time(cls, gps_time: float):
         pd_ts = time_conversion.gps_time_to_timestamp(gps_time)
         timestamp_str = pd_ts.isoformat(timespec="nanoseconds")
@@ -122,6 +128,12 @@ class GnssTimestamp:
     @classmethod
     def from_gps_tow(cls, gps_week: int, tow: float):
         pd_ts = time_conversion.gps_week_to_timestamp(gps_week, tow)
+        timestamp_str = pd_ts.isoformat()
+        return cls(timestamp_str)
+
+    @classmethod
+    def from_bei_tow(cls, bei_week: int, tow: float):
+        pd_ts = time_conversion.bei_week_to_timestamp(bei_week, tow)
         timestamp_str = pd_ts.isoformat()
         return cls(timestamp_str)
 
@@ -148,6 +160,14 @@ class GnssTimestamp:
     def tow(self) -> float:
         _, tow = time_conversion.timestamp_to_gps_tow(self.timestamp_pd)
         return tow
+
+    def bei_week(self) -> int:
+        bei_week, _ = time_conversion.timestamp_to_bei_tow(self.timestamp_pd)
+        return bei_week
+
+    def bei_tow(self):
+        _, bei_tow = time_conversion.timestamp_to_bei_tow(self.timestamp_pd)
+        return bei_tow
 
     def local_time(self) -> str:
         # Get the local timezone of the computer

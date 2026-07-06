@@ -10,7 +10,9 @@ __version__ = "0.0.1"
 
 import georinex
 import warnings
-import pandas as pd
+from pandas import Timedelta
+from copy import copy
+
 from bits.src.reference_frame_object import GnssTimestamp
 from bits.src.naming import normalize_gnss_constellation
 
@@ -22,7 +24,6 @@ def rinex_nav(filepath):
     :return: BITS ephemeris dataframe
     """
     lost_in_translation = {
-        "Toe": "toe",  # Reference time, ephemeris parameters (s)
         "sqrtA": "sqrta",  # Square root of the semi-major axis (sqrt(m))
         "Eccentricity": "e",  # Eccentricity (dimensionless)
         "Io": "i0",  # Inclination angle at reference time (semicircles)
@@ -54,8 +55,57 @@ def rinex_nav(filepath):
     pd_ephemeris["sv_id"] = pd_ephemeris["gnss_id"].apply(lambda sv: int(sv[1:]))
     pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(lambda sv: sv[0])
     pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(normalize_gnss_constellation)
-    pd_ephemeris["time"] = indexes.get_level_values(0)
-    pd_ephemeris["time"] = pd_ephemeris["time"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_gps_time(ts))
+    pd_ephemeris["time_rinex"] = indexes.get_level_values(0)
+
+
+    # Convert time
+    pd_ephemeris["time"] = None
+    pd_ephemeris["time_of_ephemeris"] = None
+    # GPS time system has an 18s bias with respect to UTC
+    mask = pd_ephemeris["gnss_id"] == "gps"
+    pd_ephemeris.loc[mask, "time"] = (
+        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_gps_time(ts)))
+    pd_ephemeris.loc[mask, "time_of_ephemeris"] = pd_ephemeris.loc[mask].apply(lambda row: get_gps_toe(row), axis=1)
+
+
+    # Galileo time system has an 18s bias with respect to UTC
+    mask = pd_ephemeris["gnss_id"] == "gal"
+    pd_ephemeris.loc[mask, "time"] = (
+        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_gps_time(ts)))
+    pd_ephemeris.loc[mask, "time_of_ephemeris"] = pd_ephemeris.loc[mask].apply(lambda row: get_gps_toe(row), axis=1)
+
+    # Glonass is equivalent to UTC (but used to be in UTC+3)
+    mask = pd_ephemeris["gnss_id"] == "glo"
+    pd_ephemeris.loc[mask, "time"] = (
+        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp(ts)))
+    pd_ephemeris.loc[mask, "time_of_ephemeris"] = (
+        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp(ts)))
+
+    # Beidou time system has a 4s bias with respect to UTC
+    mask = pd_ephemeris["gnss_id"] == "bei"
+    pd_ephemeris.loc[mask, "time"] = (
+        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_beidou_time(ts)))
+    pd_ephemeris.loc[mask, "time_of_ephemeris"] = pd_ephemeris.loc[mask].apply(lambda row: get_bei_toe(row), axis=1)
+
+    # Get gps clock corrections
+    if "TGD" not in pd_ephemeris.columns:
+        pd_ephemeris["TGD"] = None
+
+    # Get glo clock corrections
+    mask = pd_ephemeris["gnss_id"] == "glo"
+    if mask.any():
+        pd_ephemeris.loc[mask, "SVclockDrift"] = pd_ephemeris.loc[mask, "SVrelFreqBias"]
+        pd_ephemeris["SVclockDriftRate"] = pd_ephemeris["SVclockDriftRate"].fillna(0)
+
+    # Get Galileo time group delay
+    mask = pd_ephemeris["gnss_id"] == "gal"
+    if mask.any():
+        pd_ephemeris.loc[mask, "TGD"] = pd_ephemeris.loc[mask, "BGDe5a"]
+
+    # Get Beidou time group delay
+    mask = pd_ephemeris["gnss_id"] == "bei"
+    if mask.any():
+        pd_ephemeris.loc[mask, "TGD"] = pd_ephemeris.loc[mask, "TGD1"]
 
     # Clean up
     pd_ephemeris = pd_ephemeris.rename(columns=lost_in_translation)
@@ -70,3 +120,11 @@ def rinex_nav(filepath):
 
     return pd_ephemeris
 
+
+def get_gps_toe(row):
+    gps_week = row["time"].gps_week()
+    return GnssTimestamp.from_gps_tow(gps_week, row["Toe"])
+
+def get_bei_toe(row):
+    bei_week = row["time"].bei_week()
+    return GnssTimestamp.from_bei_tow(bei_week, row["Toe"])

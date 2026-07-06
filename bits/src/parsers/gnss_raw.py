@@ -122,8 +122,11 @@ def rinex_obs(filepath: str) -> pandas.DataFrame:
     obs_df["pr_rate_mps"] = \
         obs_df["doppler_hz"].apply(lambda doppler: doppler_to_pr_rate(doppler)) # TODO works only with L1...
 
+    # Get CN0
+    obs_df["CN0"] = obs_df["S1C"].combine_first(obs_df["S2I"])
+
     # Clean up
-    obs_df = obs_df[["time", "gnss_id", "sv_id", "pr_m", "doppler_hz", "pr_rate_mps"]]
+    obs_df = obs_df[["time", "gnss_id", "sv_id", "pr_m", "doppler_hz", "pr_rate_mps", "CN0"]]
     obs_df = obs_df.dropna()
     obs_df = obs_df.reset_index(drop=True)
 
