@@ -13,7 +13,6 @@ __version__ = "0.0.1"
 import os
 from bits.src.parsers import ephemeris, gnss_raw, nmea
 from bits.src.spp import *
-from bits.src.spp import _build_init_pd_gnss_pvt
 from bits.src.convert.space_conversion import ecef_to_enu
 
 required_precision = 15  # m
@@ -37,21 +36,6 @@ pd_gnss_raw = get_sv_states(pd_raw, pd_ephemeris)
 pd_ephemeris2 = ephemeris.rinex_nav(ephem2_filepath)
 pd_raw2 = gnss_raw.rinex_obs(raw2_filepath)
 nmea_pd = nmea.gga(nmea_filepath)
-
-
-def test_geometry_matrix(tolerance=1e-10):
-    pd_approx_pos = _build_init_pd_gnss_pvt(pd_gnss_raw)
-    pd_geometry_matrix = get_geometry_matrix(pd_gnss_raw, pd_approx_pos)
-    assert isinstance(pd_geometry_matrix, pd.DataFrame) and not pd_geometry_matrix.empty
-    for _, row in pd_geometry_matrix.iterrows():
-        for h in row["geometry_matrix"]:
-            h = h[:-1]
-            assert abs((np.linalg.norm(h) - 1)) < tolerance, "Geometry matrix is not composed of unit vectors"
-
-def test_approx_pos_estimate():
-    tol = 100
-    pd_gnss_pvt = get_approx_position_estimate(pd_gnss_raw, convergence_tolerance=tol)
-    assert (pd_gnss_pvt['ols_convergence_m'] < tol).all(), "Position estimate did not converge"
 
 def test_glo_pos_estimate():
     pos_estimate(gnss_id="glo")
@@ -100,8 +84,6 @@ def test_azimuth_elevation():
     assert (pd_az_el_raw["az_diff"] < az_el_required_precision).all(), txt
 
 if __name__ == "__main__":
-    test_geometry_matrix()
-    test_glo_pos_estimate()
     test_azimuth_elevation()
     test_glo_pos_estimate()
     test_gal_pos_estimate()

@@ -54,63 +54,6 @@ def compute_geometry_matrix(sv_position: np.array, rx_pos: np.array) -> np.array
     return geometry_matrix
 
 
-def get_geometry_matrix(pd_gnss_raw: pd.DataFrame, pd_approx_pos: pd.DataFrame) -> pd.DataFrame:
-    """
-    Computes geometry matrices using dataframes.
-    :param pd_gnss_raw: GNSS raw dataframe from BITS parser
-    :param pd_approx_pos: GNSS pvt dataframe (at least "time", "x_rx_m", "y_rx_m", "z_rx_m")
-    :return: pd_gnss_pvt like dataframe with geometry matrices
-    """
-    if {"corr_pr_m"}.issubset(pd_gnss_raw.columns):
-        pr_column_name = "corr_pr_m"
-    else:
-        pr_column_name = "pr_m"
-    # Initialization of the output columns
-    dict_geometry_matrix = {
-        "time": [],
-        'pr_m': [],
-        'doppler_hz': [],
-        "sv_id": [],
-        "gnss_id": [],
-        "geometry_matrix": [],
-    }
-
-    timestamp_list = pd_gnss_raw["time"].unique().tolist()
-
-    for timestamp in timestamp_list:
-        if timestamp in pd_approx_pos['time'].values:
-            pd_gnss_raw_at_timestamp = pd_gnss_raw[pd_gnss_raw["time"] == timestamp]
-            pd_approx_pos_at_timestamp = pd_approx_pos[pd_approx_pos["time"] == timestamp]
-            if len(pd_approx_pos_at_timestamp) != 1:
-                txt = f"Position estimate has several possibilities at timestamp{timestamp}. Using first instance to compute geometry matrix."
-                warnings.warn(txt, UserWarning)
-            pd_ser_approx_pos_at_timestamp = pd_approx_pos_at_timestamp.iloc[0]
-
-            dict_geometry_matrix["time"].append(pd_gnss_raw_at_timestamp["time"].iloc[0])
-            dict_geometry_matrix[pr_column_name].append(pd_gnss_raw_at_timestamp[pr_column_name].to_numpy())
-            dict_geometry_matrix["doppler_hz"].append(pd_gnss_raw_at_timestamp["doppler_hz"].to_numpy())
-            dict_geometry_matrix["sv_id"].append(pd_gnss_raw_at_timestamp["sv_id"].tolist())
-            dict_geometry_matrix["gnss_id"].append(pd_gnss_raw_at_timestamp["gnss_id"].tolist())
-
-            sv_position_x = pd_gnss_raw_at_timestamp["x_sv_m"].to_numpy()
-            sv_position_y = pd_gnss_raw_at_timestamp["y_sv_m"].to_numpy()
-            sv_position_z = pd_gnss_raw_at_timestamp["z_sv_m"].to_numpy()
-            sv_position = np.array([sv_position_x, sv_position_y, sv_position_z]).transpose()
-
-            rx_pos = np.array([pd_ser_approx_pos_at_timestamp["x_rx_m"], pd_ser_approx_pos_at_timestamp["y_rx_m"],
-                      pd_ser_approx_pos_at_timestamp["z_rx_m"]])
-
-            geometry_matrix = compute_geometry_matrix(sv_position, rx_pos)
-            dict_geometry_matrix["geometry_matrix"].append(geometry_matrix)
-
-        else:
-            txt = f"Cannot build geometry at timestamp {timestamp}, no RX position available"
-            warnings.warn(txt)
-
-    pd_geometry_matrix = pd.DataFrame(dict_geometry_matrix)
-    return pd_geometry_matrix
-
-
 def _build_init_pd_gnss_pvt(pd_gnss_raw: pd.DataFrame, init_pvt: tuple[float, float, float]=(0, 0, 0)) -> pd.DataFrame:
     """
     Builds a pd_gnss_pvt dataframe compatible with pd_gnss_raw with "init_pvt" as positions
@@ -179,37 +122,6 @@ def weighted_least_square(Y: np.ndarray, G: np.ndarray, W: np.ndarray) -> tuple[
     return x_hat, cov_x, dop
 
 
-def compute_position_estimate(pseudorange: np.ndarray, geometry_matrix: np.ndarray, weight_matrix: np.ndarray) \
-        -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Performs a Weighted Least Square to compute position estimate.
-    sources:    https://gssc.esa.int/navipedia/index.php?title=Weighted_Least_Square_Solution_(WLS)
-                https://gssc.esa.int/navipedia/index.php?title=Best_Linear_Unbiased_Minimum-Variance_Estimator_(BLUE)
-    :param pseudorange: Pseudoranges (m). Array with dim==1
-    :param geometry_matrix: Geometry matrix built with compute_geometry_matrix. Shape[0] must be the same length as
-    pseudorange.
-    :param weight_matrix: Weight matrix (inverse of covariance matrix of measurement noise)
-    :return: Position estimate, covariance matrix, Dilution Of Precision
-    """
-    # Check pseudorange shape
-    if pseudorange.shape[1] != 1:
-        pseudorange.reshape(-1, 1)
-
-    # Check if the number of satellites in the geometry matrix is the same as the number of pseudoranges
-    if pseudorange.shape[0] != geometry_matrix.shape[0]:
-        txt = f"Pseudorange matrix is not the same length as the geometry matrix ({pseudorange.shape[0]}, {geometry_matrix.shape[0]})."
-        raise PositionEstimationError(txt)
-
-    # Check if number of pseudoranges is enough to compute position (typically at least 4)
-    if geometry_matrix.shape[1] > geometry_matrix.shape[0]:
-        txt = f"Not enough satellites in view (need at least {geometry_matrix.shape[1]} found {geometry_matrix.shape[0]})."
-        raise PositionEstimationError(txt)
-
-    x_hat, cov_x, dop = weighted_least_square(pseudorange, geometry_matrix, weight_matrix)
-
-    return x_hat, cov_x, dop
-
-
 def compute_speed_estimate(pr_rate: np.ndarray, geometry_matrix: np.ndarray, sv_speed: np.ndarray,
                            weight_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -246,7 +158,7 @@ def compute_speed_estimate(pr_rate: np.ndarray, geometry_matrix: np.ndarray, sv_
 
 
 def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: pd.DataFrame=None,
-                                 approx_pvt: tuple[float, float, float]=(0, 0, 0), convergence_tolerance=1e-7,
+                                 approx_pvt: tuple[float, float, float]=(0, 0, 0), convergence_tolerance:float=1e-7,
                                  max_iteration: int=10, weights_column:str="weight") -> pd.DataFrame:
     """
     Computes position without any corrections.
@@ -255,132 +167,196 @@ def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: 
     :param pd_gnss_raw: GNSS raw dataframe from BITS parser
     :param pd_gnss_approx_pvt: GNSS pvt dataframe with approximate pvt
     :param approx_pvt: Position (ECEF meters) at initialization (default -> centre of earth)
-    :param convergence_tolerance: min acceptable position difference between two iterations
-    :param max_iteration: GNSS pvt dataframe
+    :param convergence_tolerance: Min acceptable position difference between two iterations
+    :param max_iteration: Maximum allowed iterations
     :param weights_column: Column name of satellite weights (if any). Weight should be the inverse of measurement noise.
     :return: GNSS pvt dataframe
     """
+    # Use corrected pseudorange if corrections already applied
     if {"corr_pr_m"}.issubset(pd_gnss_raw.columns):
         pr_column_name = "corr_pr_m"
     else:
         pr_column_name = "pr_m"
+
+    # Build the first iteration of GNSS pvt dataframe
     if pd_gnss_approx_pvt is None:
-        # Build the first iteration of GNSS pvt dataframe
         pd_gnss_approx_pvt = _build_init_pd_gnss_pvt(pd_gnss_raw, init_pvt=approx_pvt)
-    pd_gnss_approx_pvt["ols_convergence_m"] = -1.0
 
-    for i in range(max_iteration):
-        for index, row in pd_gnss_approx_pvt.iterrows(): # Loop over all timestamp
-            if row["ols_convergence_m"] == -1.0 or row["ols_convergence_m"] > convergence_tolerance: # Convergence check
-                timestamp = row["time"]
-                if timestamp in pd_gnss_raw["time"].values:
-                    # Get all raw measurements at timestamp
-                    pd_gnss_raw_at_timestamp = pd_gnss_raw[pd_gnss_raw["time"] == timestamp].copy()
+    approx_pvt_serie_list = []
+    for index, row in pd_gnss_approx_pvt.iterrows(): # Loop over all timestamp
+        timestamp = row["time"]
+        if timestamp in pd_gnss_raw["time"].values:
+            # Get all raw measurements at timestamp
+            pd_gnss_raw_at_timestamp = pd_gnss_raw[pd_gnss_raw["time"] == timestamp].copy()
 
-                    # Build SV position matrix
-                    np_sv_position = pd_gnss_raw_at_timestamp[["x_sv_m", "y_sv_m", "z_sv_m"]].to_numpy()
+            # Compute position and speed estimate
+            group_gnss_raw, serie_gnss_approx_pvt = (
+                window_approx_position_estimate(pd_gnss_raw_at_timestamp, row,
+                                                convergence_tolerance=convergence_tolerance,
+                                                max_iteration=max_iteration, weights_column=weights_column,
+                                                pr_column_name=pr_column_name))
+            approx_pvt_serie_list.append(serie_gnss_approx_pvt)
 
-                    # Build RX position matrix
-                    np_rx_pos = np.array([row["x_rx_m"], row["y_rx_m"], row["z_rx_m"]])
-
-                    # Compute pr_delta_m
-                    pd_gnss_raw_at_timestamp["sv_range_m"] = pd_gnss_raw_at_timestamp.apply(
-                        lambda raw_row: np.linalg.norm(np_rx_pos - np.array([raw_row["x_sv_m"], raw_row["y_sv_m"],
-                                                                             raw_row["z_sv_m"]])), axis=1)
-                    pd_gnss_raw_at_timestamp["pr_delta_m"] = (pd_gnss_raw_at_timestamp[pr_column_name] - row["b_rx_m"]
-                                                        - pd_gnss_raw_at_timestamp["sv_range_m"])
-                    np_pseudorange = pd_gnss_raw_at_timestamp["pr_delta_m"].to_numpy().reshape(-1, 1)
-
-                    # Compute geometry matrix
-                    np_geometry_matrix = compute_geometry_matrix(np_sv_position, np_rx_pos)
-
-                    # Build weight matrix
-                    if weights_column in pd_gnss_raw_at_timestamp.columns:
-                        w = pd_gnss_raw_at_timestamp[weights_column].to_numpy()
-                    else:
-                        w = np.ones_like(np_pseudorange)
-                    np_weight = np.diag(w.ravel())
-
-                    # Compute delta position estimate
-                    try:
-                        np_estimate_delta, cov, dop = (
-                            compute_position_estimate(np_pseudorange, np_geometry_matrix, np_weight))
-
-                        # Compute position difference since last iteration
-                        convergence = np.linalg.norm(np_estimate_delta)
-
-                        # Update position estimate
-                        pd_gnss_approx_pvt.at[index, "x_rx_m"] += float(np_estimate_delta[0][0])
-                        pd_gnss_approx_pvt.at[index, "y_rx_m"] += float(np_estimate_delta[1][0])
-                        pd_gnss_approx_pvt.at[index, "z_rx_m"] += float(np_estimate_delta[2][0])
-                        pd_gnss_approx_pvt.at[index, "b_rx_m"] += float(np_estimate_delta[3][0])
-
-                        if weights_column in pd_gnss_raw_at_timestamp.columns:
-                            pd_gnss_approx_pvt.at[index, "cov_xx_rx_m"] = float(cov[0][0])
-                            pd_gnss_approx_pvt.at[index, "cov_yx_rx_m"] = float(cov[0][1])
-                            pd_gnss_approx_pvt.at[index, "cov_zx_rx_m"] = float(cov[0][2])
-                            pd_gnss_approx_pvt.at[index, "cov_bx_rx_m"] = float(cov[0][3])
-                            pd_gnss_approx_pvt.at[index, "cov_yy_rx_m"] = float(cov[1][1])
-                            pd_gnss_approx_pvt.at[index, "cov_zy_rx_m"] = float(cov[1][2])
-                            pd_gnss_approx_pvt.at[index, "cov_by_rx_m"] = float(cov[1][3])
-                            pd_gnss_approx_pvt.at[index, "cov_zz_rx_m"] = float(cov[2][2])
-                            pd_gnss_approx_pvt.at[index, "cov_bz_rx_m"] = float(cov[2][3])
-                            pd_gnss_approx_pvt.at[index, "cov_bb_rx_m"] = float(cov[3][3])
-
-                        pd_gnss_approx_pvt.at[index, "DOP"] = float(dop)
-
-                        pd_gnss_approx_pvt.at[index, "ols_convergence_m"] = abs(convergence)
-                    except PositionEstimationError as e:
-                        convergence = -1
-                        txt = f"Cannot compute position at timestamp {timestamp}: {e}"
-                        warnings.warn(txt)
-                        pd_gnss_approx_pvt.loc[index, ["x_rx_m", "y_rx_m", "z_rx_m", "b_rx_m"]] = None
-                        pd_gnss_approx_pvt.at[index, "ols_convergence_m"] = -1
-
-                    # Compute speed estimate
-                    if (convergence != -1 and abs(convergence) < convergence_tolerance
-                            and {"vx_sv_mps", "vy_sv_mps", "vz_sv_mps"}.issubset(pd_gnss_raw_at_timestamp.columns)): # Do it only once at the end
-                        # Build doppler and satellite speed arrays
-                        pr_rate = pd_gnss_raw_at_timestamp["pr_rate_mps"].to_numpy().reshape(-1, 1)
-                        sv_speed = pd_gnss_raw_at_timestamp[["vx_sv_mps", "vy_sv_mps", "vz_sv_mps"]].to_numpy()
-                        try:
-                            np_speed_estimate, cov, _ = (
-                                compute_speed_estimate(pr_rate, np_geometry_matrix, sv_speed, np_weight))
-                            pd_gnss_approx_pvt.at[index, "vx_rx_mps"] = float(np_speed_estimate[0][0])
-                            pd_gnss_approx_pvt.at[index, "vy_rx_mps"] = float(np_speed_estimate[1][0])
-                            pd_gnss_approx_pvt.at[index, "vz_rx_mps"] = float(np_speed_estimate[2][0])
-                            pd_gnss_approx_pvt.at[index, "vb_rx_mps"] = float(np_speed_estimate[3][0])
-
-                            if weights_column in pd_gnss_raw_at_timestamp.columns:
-                                pd_gnss_approx_pvt.at[index, "cov_vxvx_rx_mps"] = float(cov[0][0])
-                                pd_gnss_approx_pvt.at[index, "cov_vyvx_rx_mps"] = float(cov[0][1])
-                                pd_gnss_approx_pvt.at[index, "cov_vzvx_rx_mps"] = float(cov[0][2])
-                                pd_gnss_approx_pvt.at[index, "cov_vbvx_rx_mps"] = float(cov[0][3])
-                                pd_gnss_approx_pvt.at[index, "cov_vyvy_rx_mps"] = float(cov[1][1])
-                                pd_gnss_approx_pvt.at[index, "cov_vzvy_rx_mps"] = float(cov[1][2])
-                                pd_gnss_approx_pvt.at[index, "cov_vbvy_rx_mps"] = float(cov[1][3])
-                                pd_gnss_approx_pvt.at[index, "cov_vzvz_rx_mps"] = float(cov[2][2])
-                                pd_gnss_approx_pvt.at[index, "cov_vbvz_rx_mps"] = float(cov[2][3])
-                                pd_gnss_approx_pvt.at[index, "cov_vbvb_rx_mps"] = float(cov[3][3])
-                        except PositionEstimationError as e:
-                            txt = f"Cannot compute speed at timestamp {timestamp}: {e}"
-                            warnings.warn(txt)
-                            pd_gnss_approx_pvt.loc[index, ["vx_rx_mps", "vy_rx_mps", "vz_rx_mps", "vb_rx_mps"]] = None
-
-        if (pd_gnss_approx_pvt['ols_convergence_m'] < convergence_tolerance).all(): # Check if convergence is satisfactory
-            break
-
-    # Detect position convergence failures
-    for _, row in pd_gnss_approx_pvt[pd_gnss_approx_pvt["ols_convergence_m"] > convergence_tolerance].iterrows():
-        txt = f"Position did not converge at timestamp {row['time']}. Convergence = {row['ols_convergence_m']}"
-        warnings.warn(txt)
-
-    # Add WGS coordinates
-    pd_gnss_approx_pvt[['lat', 'lon', 'alt']] = (pd_gnss_approx_pvt.apply(
-        lambda pvt_row: pd.Series(ecef_to_wgs(pvt_row["x_rx_m"], pvt_row["y_rx_m"], pvt_row["z_rx_m"]))
-        if pvt_row["ols_convergence_m"]!=-1 else pd.Series((None, None, None)), axis=1))
+    # Merge all timestamps
+    pd_gnss_approx_pvt = pd.DataFrame(approx_pvt_serie_list)
 
     return  pd_gnss_approx_pvt
+
+def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_approx_pvt: pd.Series,
+                                    convergence_tolerance:float=1e-7, max_iteration: int=10, weights_column:str="weight",
+                                    pr_column_name:str="corr_pr_m") -> tuple[pd.DataFrame, pd.Series]:
+    """
+    Computes position and speed at a specific timestamp without any corrections.
+
+    sources:    https://gssc.esa.int/navipedia/index.php?title=Code_Based_Positioning_(SPS)
+                https://gssc.esa.int/navipedia/index.php?title=Parameters_adjustment
+
+    :param group_gnss_raw: GNSS raw dataframe at a specific timestamp
+    :param serie_gnss_approx_pvt: GNSS pvt Serie with position at initialization
+    :param convergence_tolerance: Min acceptable position difference between two iterations
+    :param max_iteration: Maximum allowed iterations
+    :param weights_column: Column name of satellite weights (if any). Weight should be the inverse of measurement noise.
+    :param pr_column_name: Column name of pseudoranges
+    :return: GNSS raw dataframe, GNSS pvt dataframe
+    """
+    # Build SV position matrix
+    np_sv_position = group_gnss_raw[["x_sv_m", "y_sv_m", "z_sv_m"]].to_numpy()
+
+    # Build RX position matrix
+    np_rx_pos = np.array(
+        [serie_gnss_approx_pvt["x_rx_m"], serie_gnss_approx_pvt["y_rx_m"], serie_gnss_approx_pvt["z_rx_m"], 0])
+
+    # Build pseudorange
+    np_pr = group_gnss_raw[pr_column_name].to_numpy()
+
+    # Build weight matrix
+    if weights_column in group_gnss_raw.columns:
+        w = group_gnss_raw[weights_column].to_numpy()
+    else:
+        w = np.ones_like(np_pr)
+    np_weight = np.diag(w.ravel())
+
+    # Compute position using Gauss-Newton iterative algorithm
+    np_rx_pos, np_geometry_matrix, cov, dop = (
+        gauss_newton(np_pr, np_weight, np_rx_pos, np_sv_position, convergence_tolerance, max_iteration))
+
+    # Add ECEF coordinates
+    serie_gnss_approx_pvt["x_rx_m"] = float(np_rx_pos[0])
+    serie_gnss_approx_pvt["y_rx_m"] = float(np_rx_pos[1])
+    serie_gnss_approx_pvt["z_rx_m"] = float(np_rx_pos[2])
+    serie_gnss_approx_pvt["b_rx_m"] = float(np_rx_pos[3])
+
+    # Add WGS coordinates
+    if not np.isnan(np_rx_pos).any():
+        serie_gnss_approx_pvt['lat'], serie_gnss_approx_pvt['lon'], serie_gnss_approx_pvt['alt'] \
+            = ecef_to_wgs(float(np_rx_pos[0]), float(np_rx_pos[1]), float(np_rx_pos[2]))
+    else:
+        serie_gnss_approx_pvt['lat'], serie_gnss_approx_pvt['lon'], serie_gnss_approx_pvt['alt'] = (None, None, None)
+
+    # Add variance-covariance matrix
+    if weights_column in group_gnss_raw.columns:
+        serie_gnss_approx_pvt["cov_xx_rx_m"] = float(cov[0][0])
+        serie_gnss_approx_pvt["cov_yx_rx_m"] = float(cov[0][1])
+        serie_gnss_approx_pvt["cov_zx_rx_m"] = float(cov[0][2])
+        serie_gnss_approx_pvt["cov_bx_rx_m"] = float(cov[0][3])
+        serie_gnss_approx_pvt["cov_yy_rx_m"] = float(cov[1][1])
+        serie_gnss_approx_pvt["cov_zy_rx_m"] = float(cov[1][2])
+        serie_gnss_approx_pvt["cov_by_rx_m"] = float(cov[1][3])
+        serie_gnss_approx_pvt["cov_zz_rx_m"] = float(cov[2][2])
+        serie_gnss_approx_pvt["cov_bz_rx_m"] = float(cov[2][3])
+        serie_gnss_approx_pvt["cov_bb_rx_m"] = float(cov[3][3])
+
+    # Add Dilution Of Precision
+    serie_gnss_approx_pvt["DOP"] = float(dop)
+
+    # Compute speed estimate
+    if not np.isnan(np_rx_pos).any() and {"vx_sv_mps", "vy_sv_mps", "vz_sv_mps"}.issubset(group_gnss_raw.columns):
+        # Build pseudorange rate and satellite speed arrays
+        pr_rate = group_gnss_raw["pr_rate_mps"].to_numpy().reshape(-1, 1)
+        sv_speed = group_gnss_raw[["vx_sv_mps", "vy_sv_mps", "vz_sv_mps"]].to_numpy()
+
+        # Compute speed using WLS
+        try:
+            np_speed_estimate, cov, _ = (
+                compute_speed_estimate(pr_rate, np_geometry_matrix, sv_speed, np_weight))
+        except PositionEstimationError as e:
+            txt = f"Cannot compute speed at timestamp {serie_gnss_approx_pvt['time']}: {e}"
+            warnings.warn(txt)
+            np_speed_estimate = np.full_like(np_rx_pos, np.nan, dtype=float)
+
+        # Add ECEF coordinates
+        serie_gnss_approx_pvt["vx_rx_mps"] = float(np_speed_estimate[0][0])
+        serie_gnss_approx_pvt["vy_rx_mps"] = float(np_speed_estimate[1][0])
+        serie_gnss_approx_pvt["vz_rx_mps"] = float(np_speed_estimate[2][0])
+        serie_gnss_approx_pvt["vb_rx_mps"] = float(np_speed_estimate[3][0])
+
+        # Add variance-covariance matrix
+        if weights_column in group_gnss_raw.columns:
+            serie_gnss_approx_pvt["cov_vxvx_rx_mps"] = float(cov[0][0])
+            serie_gnss_approx_pvt["cov_vyvx_rx_mps"] = float(cov[0][1])
+            serie_gnss_approx_pvt["cov_vzvx_rx_mps"] = float(cov[0][2])
+            serie_gnss_approx_pvt["cov_vbvx_rx_mps"] = float(cov[0][3])
+            serie_gnss_approx_pvt["cov_vyvy_rx_mps"] = float(cov[1][1])
+            serie_gnss_approx_pvt["cov_vzvy_rx_mps"] = float(cov[1][2])
+            serie_gnss_approx_pvt["cov_vbvy_rx_mps"] = float(cov[1][3])
+            serie_gnss_approx_pvt["cov_vzvz_rx_mps"] = float(cov[2][2])
+            serie_gnss_approx_pvt["cov_vbvz_rx_mps"] = float(cov[2][3])
+            serie_gnss_approx_pvt["cov_vbvb_rx_mps"] = float(cov[3][3])
+
+    return group_gnss_raw, serie_gnss_approx_pvt
+
+def gauss_newton(np_pr:np.ndarray, np_weight:np.ndarray, np_rx_pos:np.ndarray, np_sv_position:np.ndarray,
+                 convergence_tolerance:float=1e-7, max_iteration:int=10) \
+        -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Computes position using Gauss Newton method.
+
+    Gauss Newton is an iterative algorithm that computes an estimated divergence between an a priori RX position and the
+    real RX position. Since the Geometry matrix depends on RX position, it must be recomputed at each iteration.
+
+    At each iteration:
+    d_pseudorange = pseudorange - clock_bias - range(X)
+    d_X = WLS(d_pseudorange, G(X), W)
+    X = X + dX
+
+    sources:    https://gssc.esa.int/navipedia/index.php?title=Code_Based_Positioning_(SPS)
+                https://gssc.esa.int/navipedia/index.php?title=Parameters_adjustment
+
+    :param np_pr: Pseudorange matrix (m)
+    :param np_weight: Weight matrix; Weight should be the inverse of variance-covariance matrix of measurement noise.
+    :param np_rx_pos: ECEF RX position at initialization vector (m)
+    :param np_sv_position: ECEF  SV position vector (m)
+    :param convergence_tolerance: Min acceptable position difference between two iterations
+    :param max_iteration: Maximum allowed iterations
+    :return: ECEF position (m), geometry matrix, variance-covariance matrix, Dilution Of Precision
+    """
+    for i in range(max_iteration):
+        # Compute delta pseudorange
+        sv_range_np = np.linalg.norm(np_rx_pos[:3] - np_sv_position, axis=1)
+        np_delta_pr = np_pr - np_rx_pos[3] -  sv_range_np
+        np_delta_pr = np_delta_pr.reshape(-1, 1)
+
+        # Compute geometry matrix
+        np_geometry_matrix = compute_geometry_matrix(np_sv_position, np_rx_pos[:3])
+
+        # Compute delta position estimate
+        try:
+            np_estimate_delta, cov, dop = weighted_least_square(np_delta_pr, np_geometry_matrix, np_weight)
+
+            # Update position estimate
+            np_rx_pos += np_estimate_delta.ravel()
+
+            # Check convergence
+            if np.linalg.norm(np_estimate_delta) < convergence_tolerance:
+                break
+        except PositionEstimationError as e:
+            txt = f"Cannot compute position: {e}"
+            warnings.warn(txt)
+            np_rx_pos = np.full_like(np_rx_pos, np.nan, dtype=float)
+            break
+
+    return np_rx_pos, np_geometry_matrix, cov, dop
+
 
 
 def get_sv_el_az(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> pd.DataFrame:
