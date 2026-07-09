@@ -84,8 +84,8 @@ def test_azimuth_elevation():
     assert (pd_az_el_raw["az_diff"] < az_el_required_precision).all(), txt
 
 if __name__ == "__main__":
-    test_azimuth_elevation()
     test_glo_pos_estimate()
     test_gal_pos_estimate()
     test_gps_pos_estimate()
     test_bei_pos_estimate()
+    test_azimuth_elevation()

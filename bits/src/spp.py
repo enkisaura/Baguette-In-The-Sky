@@ -24,6 +24,7 @@ from bits.src.corrections import get_clock_corrections, get_atmospheric_correcti
 from bits.src.sv_model import get_sv_states
 from bits.src import const
 from bits.src.utils import check_dataframe
+from tqdm import tqdm
 
 class PositionEstimationError(Exception):
     """Exception raised for errors during position estimation."""
@@ -181,21 +182,23 @@ def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: 
     # Build the first iteration of GNSS pvt dataframe
     if pd_gnss_approx_pvt is None:
         pd_gnss_approx_pvt = _build_init_pd_gnss_pvt(pd_gnss_raw, init_pvt=approx_pvt)
+    pvt_time_list = pd_gnss_approx_pvt["time"].tolist()
 
+    # Loop over all timestamp
     approx_pvt_serie_list = []
-    for index, row in pd_gnss_approx_pvt.iterrows(): # Loop over all timestamp
-        timestamp = row["time"]
-        if timestamp in pd_gnss_raw["time"].values:
-            # Get all raw measurements at timestamp
-            pd_gnss_raw_at_timestamp = pd_gnss_raw[pd_gnss_raw["time"] == timestamp].copy()
+    for raw_time, group in tqdm(pd_gnss_raw.groupby("time"), total=len(pd_gnss_raw["time"].unique()),
+                         desc="Computing position"):
+        # Find closest RX position initialization
+        pvt_closest_time = min(pvt_time_list, key=lambda d: abs(d - raw_time))
+        pvt_at_timestamp_serie = pd_gnss_approx_pvt[pd_gnss_approx_pvt["time"] == pvt_closest_time].iloc[0]
 
-            # Compute position and speed estimate
-            group_gnss_raw, serie_gnss_approx_pvt = (
-                window_approx_position_estimate(pd_gnss_raw_at_timestamp, row,
-                                                convergence_tolerance=convergence_tolerance,
-                                                max_iteration=max_iteration, weights_column=weights_column,
-                                                pr_column_name=pr_column_name))
-            approx_pvt_serie_list.append(serie_gnss_approx_pvt)
+        # Compute position and speed estimate
+        group_gnss_raw, serie_gnss_approx_pvt = (
+            window_approx_position_estimate(group, pvt_at_timestamp_serie,
+                                            convergence_tolerance=convergence_tolerance,
+                                            max_iteration=max_iteration, weights_column=weights_column,
+                                            pr_column_name=pr_column_name))
+        approx_pvt_serie_list.append(serie_gnss_approx_pvt)
 
     # Merge all timestamps
     pd_gnss_approx_pvt = pd.DataFrame(approx_pvt_serie_list)
