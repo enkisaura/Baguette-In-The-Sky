@@ -49,8 +49,14 @@ def test_gps_pos_estimate():
 def test_bei_pos_estimate():
     pos_estimate(gnss_id="bei")
 
-def pos_estimate(gnss_id:str):
-    constellation_raw_pd = pd_raw2[pd_raw2["gnss_id"] == gnss_id]
+def test_multi_constellation_pos_estimate():
+    pos_estimate()
+
+def pos_estimate(gnss_id:str|None = None):
+    if gnss_id is None:
+        constellation_raw_pd = pd_raw2.copy()
+    else:
+        constellation_raw_pd = pd_raw2[pd_raw2["gnss_id"] == gnss_id].copy()
     pd_gnss_pvt, _ = get_position_estimate(constellation_raw_pd, pd_ephemeris=pd_ephemeris2)
 
     gt_ecef = (nmea_pd["x_rx_m"].iloc[100], nmea_pd["y_rx_m"].iloc[100], nmea_pd["z_rx_m"].iloc[100])
@@ -88,4 +94,5 @@ if __name__ == "__main__":
     test_gal_pos_estimate()
     test_gps_pos_estimate()
     test_bei_pos_estimate()
+    test_multi_constellation_pos_estimate()
     test_azimuth_elevation()

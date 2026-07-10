@@ -24,6 +24,7 @@ from bits.src.corrections import get_clock_corrections, get_atmospheric_correcti
 from bits.src.sv_model import get_sv_states
 from bits.src import const
 from bits.src.utils import check_dataframe
+from bits.src.reference_frame_object import GnssTimestamp
 from tqdm import tqdm
 
 class PositionEstimationError(Exception):
@@ -31,11 +32,13 @@ class PositionEstimationError(Exception):
     pass
 
 
-def compute_geometry_matrix(sv_position: np.array, rx_pos: np.array) -> np.array:
+def compute_geometry_matrix(sv_position: np.ndarray, rx_pos: np.ndarray, sv_const_list: np.ndarray|None=None) \
+        -> np.ndarray:
     """
     Computes a geometry matrix between two position in ECEF.
     :param sv_position: Satellite vehicule position in ecef (meters) np.Array([[X], [Y], [Z]]) (column)
     :param rx_pos: Receiver position in ecef (meters) np.Array([X, Y, Z]) (line)
+    :param sv_const_list: List of constellation names associated with "sv_position"
     :return: geometry matrix
     """
     # Checking rx_pos dim
@@ -43,15 +46,29 @@ def compute_geometry_matrix(sv_position: np.array, rx_pos: np.array) -> np.array
         rx_pos.transpose()
     if rx_pos.shape[0] == sv_position.shape[0]: # sv_position is transposed
         warnings.warn("While computing geometry matrix, SV position matrix seemed transposed.")
-        sv_position.transpose() # TODO quite a dangerous behaviour...
+        sv_position.transpose()
 
     # Doing the math
     rx_pos = np.tile(rx_pos, (sv_position.shape[0], 1))
     sv_rx_range_ecef = rx_pos - sv_position
     sv_rx_range_ecef_norm = np.linalg.norm(sv_rx_range_ecef, axis=1)
     geometry_matrix = sv_rx_range_ecef / sv_rx_range_ecef_norm[:, np.newaxis]
-    ones_column = np.ones((geometry_matrix.shape[0], 1))
-    geometry_matrix = np.hstack((geometry_matrix, ones_column))
+
+    # Building clock bias part of the geometry matrix
+    if sv_const_list is None:
+        b = np.ones((geometry_matrix.shape[0], 1))
+    elif len(sv_const_list) != geometry_matrix.shape[0]:
+        txt = f"Please provide one constellation name per satellite. Expected {geometry_matrix.shape[0]}, received {len(sv_const_list)}."
+        raise ValueError(txt)
+    else:
+        # For each specific unique gnss constellation, assign a b column filled with 1 for this constellation, else 0
+        unique_gnss_const_list = np.unique(sv_const_list)
+        b = np.zeros((geometry_matrix.shape[0], len(unique_gnss_const_list)))
+        col_index = np.searchsorted(unique_gnss_const_list, sv_const_list)
+        b[np.arange(geometry_matrix.shape[0]), col_index] = 1
+
+    geometry_matrix = np.hstack((geometry_matrix, b))
+
     return geometry_matrix
 
 
@@ -153,7 +170,7 @@ def compute_speed_estimate(pr_rate: np.ndarray, geometry_matrix: np.ndarray, sv_
         txt = f"Not enough satellites in view (need at least {geometry_matrix.shape[1]} found {geometry_matrix.shape[0]})."
         raise PositionEstimationError(txt)
 
-    sv_relative_speed = np.sum(sv_speed * geometry_matrix[:, :-1], axis=1).reshape(-1, 1) # TODO sum or norm ?
+    sv_relative_speed = np.sum(sv_speed * geometry_matrix[:, :3], axis=1).reshape(-1, 1) # TODO sum or norm ?
     corrected_pr_rate = pr_rate + sv_relative_speed
 
     v_hat, cov_v, dop, residuals = weighted_least_square(corrected_pr_rate, geometry_matrix, weight_matrix)
@@ -233,7 +250,7 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
 
     # Build RX position matrix
     np_rx_pos = np.array(
-        [serie_gnss_approx_pvt["x_rx_m"], serie_gnss_approx_pvt["y_rx_m"], serie_gnss_approx_pvt["z_rx_m"], 0])
+        [serie_gnss_approx_pvt["x_rx_m"], serie_gnss_approx_pvt["y_rx_m"], serie_gnss_approx_pvt["z_rx_m"]])
 
     # Build pseudorange
     np_pr = group_gnss_raw[pr_column_name].to_numpy()
@@ -245,15 +262,31 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
         w = np.ones_like(np_pr)
     np_weight = np.diag(w.ravel())
 
+    # Build GNSS constellations list
+    sv_const_list = group_gnss_raw["gnss_id"].to_numpy()
+
     # Compute position using Gauss-Newton iterative algorithm
     np_rx_pos, np_geometry_matrix, cov, dop, residuals = (
-        gauss_newton(np_pr, np_weight, np_rx_pos, np_sv_position, convergence_tolerance, max_iteration))
+        gauss_newton(np_pr, np_weight, np_rx_pos, np_sv_position, sv_const_list, convergence_tolerance, max_iteration))
+
+    unique_gnss_const_list = np.unique(sv_const_list)
 
     # Add ECEF coordinates
     serie_gnss_approx_pvt["x_rx_m"] = float(np_rx_pos[0])
     serie_gnss_approx_pvt["y_rx_m"] = float(np_rx_pos[1])
     serie_gnss_approx_pvt["z_rx_m"] = float(np_rx_pos[2])
-    serie_gnss_approx_pvt["b_rx_m"] = float(np_rx_pos[3])
+
+    # Add clock bias
+    if len(unique_gnss_const_list) == 1:
+        serie_gnss_approx_pvt["b_rx_m"] = float(np_rx_pos[3])
+    else:
+        if "b_rx_m" in serie_gnss_approx_pvt:
+            serie_gnss_approx_pvt.drop("b_rx_m", inplace=True)
+        i=3
+        for constellation in unique_gnss_const_list:
+            b_name = f"b{constellation}_rx_m"
+            serie_gnss_approx_pvt[b_name] = float(np_rx_pos[i])
+            i+=1
 
     # Add sv elevation and azimuth
     group_gnss_raw = get_sv_el_az(group_gnss_raw,  serie_gnss_approx_pvt.to_frame().T)
@@ -266,17 +299,29 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
         serie_gnss_approx_pvt['lat'], serie_gnss_approx_pvt['lon'], serie_gnss_approx_pvt['alt'] = (None, None, None)
 
     # Add variance-covariance matrix
-    if weights_column in group_gnss_raw.columns:
-        serie_gnss_approx_pvt["cov_xx_rx_m"] = float(cov[0][0])
-        serie_gnss_approx_pvt["cov_yx_rx_m"] = float(cov[0][1])
-        serie_gnss_approx_pvt["cov_zx_rx_m"] = float(cov[0][2])
+    serie_gnss_approx_pvt["cov_xx_rx_m"] = float(cov[0][0])
+    serie_gnss_approx_pvt["cov_yx_rx_m"] = float(cov[0][1])
+    serie_gnss_approx_pvt["cov_zx_rx_m"] = float(cov[0][2])
+    serie_gnss_approx_pvt["cov_yy_rx_m"] = float(cov[1][1])
+    serie_gnss_approx_pvt["cov_zy_rx_m"] = float(cov[1][2])
+    serie_gnss_approx_pvt["cov_zz_rx_m"] = float(cov[2][2])
+
+    # Clock bias
+    if len(unique_gnss_const_list) == 1:
         serie_gnss_approx_pvt["cov_bx_rx_m"] = float(cov[0][3])
-        serie_gnss_approx_pvt["cov_yy_rx_m"] = float(cov[1][1])
-        serie_gnss_approx_pvt["cov_zy_rx_m"] = float(cov[1][2])
         serie_gnss_approx_pvt["cov_by_rx_m"] = float(cov[1][3])
-        serie_gnss_approx_pvt["cov_zz_rx_m"] = float(cov[2][2])
         serie_gnss_approx_pvt["cov_bz_rx_m"] = float(cov[2][3])
         serie_gnss_approx_pvt["cov_bb_rx_m"] = float(cov[3][3])
+    else:
+        cov_name_list = ["x", "y", "z"]
+        i = 3
+        for constellation in unique_gnss_const_list:
+            cov_name_list.append(f"b{constellation}")
+            for j in range(cov.shape[0] - (3+3-i)):
+                cov_name = f"cov_{cov_name_list[i]}{cov_name_list[j]}_rx_m"
+                serie_gnss_approx_pvt[cov_name] = float(cov[j][i])
+            i += 1
+
 
     # Add residuals
     group_gnss_raw["residuals_m"] = residuals
@@ -285,7 +330,25 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
     group_gnss_raw["e_x"] = np_geometry_matrix[:, 0]
     group_gnss_raw["e_y"] = np_geometry_matrix[:, 1]
     group_gnss_raw["e_z"] = np_geometry_matrix[:, 2]
-    group_gnss_raw["e_b"] = np_geometry_matrix[:, 3]
+    # Add clock bias
+    if len(unique_gnss_const_list) == 1:
+        serie_gnss_approx_pvt["e_b"] = np_geometry_matrix[:, 3]
+    else:
+        i=3
+        for constellation in unique_gnss_const_list:
+            b_name = f"e_b{constellation}"
+            serie_gnss_approx_pvt[b_name] = np_geometry_matrix[:, i]
+            i+=1
+
+    # Correct time
+    if "corr_pr_m" not in group_gnss_raw.columns:
+        group_gnss_raw["corr_pr_m"] = group_gnss_raw["pr_m"]
+    b_rx_m = np_geometry_matrix[:, 3:] @ np_rx_pos[3:]
+    group_gnss_raw["corr_pr_m"] -= b_rx_m
+    # GnssTimestamp object are awful to use with pandas...
+    # In a future version, GnssTimestamp will be switched back to pd.Timestamp
+    timestamp_column = group_gnss_raw["time"].apply(lambda timestamp: timestamp.timestamp_pd)
+    group_gnss_raw["corr_time"] = (timestamp_column + pd.to_timedelta(b_rx_m / const.C, unit="s")).apply(lambda timestamp: GnssTimestamp.from_pd_timestamp(timestamp))
 
     # Add Dilution Of Precision
     serie_gnss_approx_pvt["DOP"] = float(dop)
@@ -305,25 +368,48 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
             warnings.warn(txt)
             np_speed_estimate = np.full_like(np_rx_pos, np.nan, dtype=float)
             residuals_mps = np.full_like(pr_rate, np.nan, dtype=float)
+            cov = np.full((np_geometry_matrix.shape[1], np_geometry_matrix.shape[1]), np.nan, dtype=float)
 
         # Add ECEF coordinates
         serie_gnss_approx_pvt["vx_rx_mps"] = float(np_speed_estimate[0][0])
         serie_gnss_approx_pvt["vy_rx_mps"] = float(np_speed_estimate[1][0])
         serie_gnss_approx_pvt["vz_rx_mps"] = float(np_speed_estimate[2][0])
-        serie_gnss_approx_pvt["vb_rx_mps"] = float(np_speed_estimate[3][0])
+
+        # Add clock bias
+        if len(unique_gnss_const_list) == 1:
+            serie_gnss_approx_pvt["vb_rx_mps"] = float(np_speed_estimate[3])
+        else:
+            if "vb_rx_mps" in serie_gnss_approx_pvt:
+                serie_gnss_approx_pvt.drop("vb_rx_mps", inplace=True)
+            i = 3
+            for constellation in unique_gnss_const_list:
+                b_name = f"vb{constellation}_rx_mps"
+                serie_gnss_approx_pvt[b_name] = float(np_speed_estimate[i])
+                i += 1
 
         # Add variance-covariance matrix
-        if weights_column in group_gnss_raw.columns:
-            serie_gnss_approx_pvt["cov_vxvx_rx_mps"] = float(cov[0][0])
-            serie_gnss_approx_pvt["cov_vyvx_rx_mps"] = float(cov[0][1])
-            serie_gnss_approx_pvt["cov_vzvx_rx_mps"] = float(cov[0][2])
+        serie_gnss_approx_pvt["cov_vxvx_rx_mps"] = float(cov[0][0])
+        serie_gnss_approx_pvt["cov_vyvx_rx_mps"] = float(cov[0][1])
+        serie_gnss_approx_pvt["cov_vzvx_rx_mps"] = float(cov[0][2])
+        serie_gnss_approx_pvt["cov_vyvy_rx_mps"] = float(cov[1][1])
+        serie_gnss_approx_pvt["cov_vzvy_rx_mps"] = float(cov[1][2])
+        serie_gnss_approx_pvt["cov_vzvz_rx_mps"] = float(cov[2][2])
+
+        # Clock bias
+        if len(unique_gnss_const_list) == 1:
             serie_gnss_approx_pvt["cov_vbvx_rx_mps"] = float(cov[0][3])
-            serie_gnss_approx_pvt["cov_vyvy_rx_mps"] = float(cov[1][1])
-            serie_gnss_approx_pvt["cov_vzvy_rx_mps"] = float(cov[1][2])
             serie_gnss_approx_pvt["cov_vbvy_rx_mps"] = float(cov[1][3])
-            serie_gnss_approx_pvt["cov_vzvz_rx_mps"] = float(cov[2][2])
             serie_gnss_approx_pvt["cov_vbvz_rx_mps"] = float(cov[2][3])
             serie_gnss_approx_pvt["cov_vbvb_rx_mps"] = float(cov[3][3])
+        else:
+            cov_name_list = ["vx", "vy", "vz"]
+            i = 3
+            for constellation in unique_gnss_const_list:
+                cov_name_list.append(f"vb{constellation}")
+                for j in range(cov.shape[0] - (3 + 3 - i)):
+                    cov_name = f"cov_{cov_name_list[i]}{cov_name_list[j]}_rx_mps"
+                    serie_gnss_approx_pvt[cov_name] = float(cov[j][i])
+                i += 1
 
         # Add residuals
         group_gnss_raw["residuals_mps"] = residuals_mps
@@ -331,7 +417,7 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
     return group_gnss_raw, serie_gnss_approx_pvt
 
 def gauss_newton(np_pr:np.ndarray, np_weight:np.ndarray, np_rx_pos:np.ndarray, np_sv_position:np.ndarray,
-                 convergence_tolerance:float=1e-7, max_iteration:int=10) \
+                 sv_const_list:np.ndarray|None=None, convergence_tolerance:float=1e-7, max_iteration:int=10) \
         -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Computes position using Gauss Newton method.
@@ -351,18 +437,29 @@ def gauss_newton(np_pr:np.ndarray, np_weight:np.ndarray, np_rx_pos:np.ndarray, n
     :param np_weight: Weight matrix; Weight should be the inverse of variance-covariance matrix of measurement noise.
     :param np_rx_pos: ECEF RX position at initialization vector (m)
     :param np_sv_position: ECEF  SV position vector (m)
+    :param sv_const_list: List of constellation names associated with "np_sv_position"
     :param convergence_tolerance: Min acceptable position difference between two iterations
     :param max_iteration: Maximum allowed iterations
     :return: ECEF position (m), geometry matrix, variance-covariance matrix, Dilution Of Precision, residuals
     """
+    # Build RX initialization pos
+    if sv_const_list is None:
+        number_of_clock_bias = 1
+    else:
+        unique_gnss_const_list = np.unique(sv_const_list)
+        number_of_clock_bias = len(unique_gnss_const_list)
+
+    np_rx_pos = np.hstack([np_rx_pos, [0]*number_of_clock_bias]) # Add one clock bias estimate for each constellation
+
+
     for i in range(max_iteration):
+        # Compute geometry matrix
+        np_geometry_matrix = compute_geometry_matrix(np_sv_position, np_rx_pos[:3], sv_const_list)
+
         # Compute delta pseudorange
         sv_range_np = np.linalg.norm(np_rx_pos[:3] - np_sv_position, axis=1)
-        np_delta_pr = np_pr - np_rx_pos[3] -  sv_range_np
+        np_delta_pr = np_pr - np_geometry_matrix[:, 3:] @ np_rx_pos[3:] -  sv_range_np
         np_delta_pr = np_delta_pr.reshape(-1, 1)
-
-        # Compute geometry matrix
-        np_geometry_matrix = compute_geometry_matrix(np_sv_position, np_rx_pos[:3])
 
         # Compute delta position estimate
         try:
@@ -378,6 +475,8 @@ def gauss_newton(np_pr:np.ndarray, np_weight:np.ndarray, np_rx_pos:np.ndarray, n
             txt = f"Cannot compute position: {e}"
             warnings.warn(txt)
             np_rx_pos = np.full_like(np_rx_pos, np.nan, dtype=float)
+            cov = np.full((np_geometry_matrix.shape[1], np_geometry_matrix.shape[1]), np.nan, dtype=float)
+            dop = np.nan
             residuals = np.full_like(np_delta_pr, np.nan, dtype=float)
             break
 
@@ -430,49 +529,6 @@ def get_sv_el_az(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> pd.Dat
     return pd_gnss_raw
 
 
-def _correct_rx_clock(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> (pd.DataFrame, pd.DataFrame):
-    """
-    Use the computed receiver clock offset ("b_rx_m") to correct pseudoranges and timestamps.
-    :param pd_gnss_raw: GNSS raw dataframe
-    :param pd_gnss_pvt: GNSS pvt dataframe
-    :return: corrected GNSS raw dataframe, corrected GNSS pvt dataframe
-    """
-    # Check for already existing corrections
-    if not {"corr_time"}.issubset(pd_gnss_raw.columns):
-        pd_gnss_raw["corr_time"] = None
-    if not {"corr_time"}.issubset(pd_gnss_pvt.columns):
-        pd_gnss_pvt["corr_time"] = None
-    if not {"corr_pr_m"}.issubset(pd_gnss_raw.columns):
-        pd_gnss_raw["corr_pr_m"] = pd_gnss_raw["pr_m"]
-
-    timestamp_list = pd_gnss_raw["time"].unique().tolist()
-    for timestamp in timestamp_list:# Loop over all timestamp
-        if timestamp in pd_gnss_pvt["time"].values:
-            # Get all raw measurements at timestamp
-            pd_gnss_raw_at_timestamp = pd_gnss_raw[pd_gnss_raw["time"] == timestamp].copy()
-            pd_gnss_pvt_at_timestamp = pd_gnss_pvt[pd_gnss_pvt["time"] == timestamp].copy()
-            if len(pd_gnss_pvt_at_timestamp) != 1:
-                txt = f"Position estimate has several possibilities at timestamp {timestamp}. Using first instance to compute az & el."
-                warnings.warn(txt, UserWarning)
-            pd_ser_gnss_pvt_at_timestamp = pd_gnss_pvt_at_timestamp.iloc[0]
-
-            b_rx_m = pd_ser_gnss_pvt_at_timestamp["b_rx_m"] # Get receiver clock bias
-
-            # If no clock bias has been computed, return None
-            if b_rx_m is None or pd.isna(b_rx_m):
-                pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["corr_time"]] = float("nan")
-                pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["corr_pr_m"]] = float("nan")
-                pd_gnss_pvt.loc[pd_gnss_pvt_at_timestamp.index, ["corr_time"]] = float("nan")
-                continue
-
-            corrected_timestamp = pd_ser_gnss_pvt_at_timestamp["time"] + pd.Timedelta(seconds=b_rx_m / const.C)
-            pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["corr_time"]] = corrected_timestamp
-            pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["corr_pr_m"]] -= b_rx_m
-            pd_gnss_pvt.loc[pd_gnss_pvt_at_timestamp.index, ["corr_time"]] = corrected_timestamp
-
-    return pd_gnss_raw, pd_gnss_pvt
-
-
 def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, ephem_filepath: str = None,
                           approx_pvt: tuple[float, float, float]=(0, 0, 0), verbose=False) \
         -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -485,17 +541,6 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
     :param approx_pvt: Position (ECEF meters) at initialization (default -> centre of earth)
     :return: GNSS pvt dataframe, corrected GNSS raw dataframe
     """
-    # Multi constellation SPP is not yet available
-    glo_present = (pd_gnss_raw["gnss_id"] == "glo").any()
-    gal_present = (pd_gnss_raw["gnss_id"] == "gal").any()
-    gps_present = (pd_gnss_raw["gnss_id"] == "gps").any()
-    bei_present = (pd_gnss_raw["gnss_id"] == "bei").any()
-
-    if sum([glo_present, gal_present, gps_present, bei_present]) > 1:
-        raise ValueError("Single Point Positioning is not yet available for multi constellation. "
-                         "Please keep only one in raw data")
-
-
     if verbose:
         print("Computing position estimate...")
 
@@ -525,8 +570,7 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
     if verbose:
         print("4/9: Correcting receiver clock...")
 
-    # Correct receiver clock and recompute SV states
-    pd_gnss_raw, pd_gnss_pvt = _correct_rx_clock(pd_gnss_raw, pd_gnss_pvt)
+    # Recompute SV states
     if verbose:
         print("5/9: Finding satellites, again...")
     pd_gnss_raw = get_sv_states(pd_gnss_raw, pd_ephemeris, ephem_filepath=ephem_filepath)
@@ -543,8 +587,7 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
 
     if verbose:
         print("8/9: Correcting receiver clock and finding satellites, again...")
-    # Correct receiver clock and recompute SV states
-    pd_gnss_raw, pd_gnss_pvt = _correct_rx_clock(pd_gnss_raw, pd_gnss_pvt)
+    # Recompute SV states
     pd_gnss_raw = get_sv_states(pd_gnss_raw, pd_ephemeris, ephem_filepath=ephem_filepath)
 
     if verbose:
