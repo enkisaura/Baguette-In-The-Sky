@@ -91,7 +91,8 @@ def _build_init_pd_gnss_pvt(pd_gnss_raw: pd.DataFrame, init_pvt: tuple[float, fl
     return pd_init_gnss_pvt
 
 
-def weighted_least_square(Y: np.ndarray, G: np.ndarray, W: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def weighted_least_square(Y: np.ndarray, G: np.ndarray, W: np.ndarray) \
+        -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Performs a Weighted Least Square (WLS) estimation.
     source: https://gssc.esa.int/navipedia/index.php/Weighted_Least_Square_Solution_(WLS)
@@ -104,7 +105,7 @@ def weighted_least_square(Y: np.ndarray, G: np.ndarray, W: np.ndarray) -> tuple[
     :param Y: measurements
     :param G: Geometry matrix
     :param W: Weight matrix (inverse of covariance matrix of measurement noise)
-    :return: X, covX, DOP
+    :return: X, covX, DOP, residuals
     """
     GtW = G.T @ W  # (m, n)
     GtWG = GtW @ G  # (m, m)
@@ -120,11 +121,13 @@ def weighted_least_square(Y: np.ndarray, G: np.ndarray, W: np.ndarray) -> tuple[
 
     dop = np.sqrt(np.trace(cov_x))
 
-    return x_hat, cov_x, dop
+    residuals = Y - G @ x_hat
+
+    return x_hat, cov_x, dop, residuals
 
 
 def compute_speed_estimate(pr_rate: np.ndarray, geometry_matrix: np.ndarray, sv_speed: np.ndarray,
-                           weight_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+                           weight_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Performs a simple Ordinary Least Square to compute speed estimate.
     sources:    https://gssc.esa.int/navipedia/index.php?title=Code_Based_Positioning_(SPS)
@@ -153,9 +156,9 @@ def compute_speed_estimate(pr_rate: np.ndarray, geometry_matrix: np.ndarray, sv_
     sv_relative_speed = np.sum(sv_speed * geometry_matrix[:, :-1], axis=1).reshape(-1, 1) # TODO sum or norm ?
     corrected_pr_rate = pr_rate + sv_relative_speed
 
-    v_hat, cov_v, dop = weighted_least_square(corrected_pr_rate, geometry_matrix, weight_matrix)
+    v_hat, cov_v, dop, residuals = weighted_least_square(corrected_pr_rate, geometry_matrix, weight_matrix)
 
-    return v_hat, cov_v, dop
+    return v_hat, cov_v, dop, residuals
 
 
 def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: pd.DataFrame=None,
@@ -243,7 +246,7 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
     np_weight = np.diag(w.ravel())
 
     # Compute position using Gauss-Newton iterative algorithm
-    np_rx_pos, np_geometry_matrix, cov, dop = (
+    np_rx_pos, np_geometry_matrix, cov, dop, residuals = (
         gauss_newton(np_pr, np_weight, np_rx_pos, np_sv_position, convergence_tolerance, max_iteration))
 
     # Add ECEF coordinates
@@ -276,7 +279,6 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
         serie_gnss_approx_pvt["cov_bb_rx_m"] = float(cov[3][3])
 
     # Add residuals
-    residuals = np_pr - np_geometry_matrix @ np_rx_pos
     group_gnss_raw["residuals_m"] = residuals
 
     # Add steering vectors
@@ -296,12 +298,13 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
 
         # Compute speed using WLS
         try:
-            np_speed_estimate, cov, _ = (
+            np_speed_estimate, cov, _ , residuals_mps = (
                 compute_speed_estimate(pr_rate, np_geometry_matrix, sv_speed, np_weight))
         except PositionEstimationError as e:
             txt = f"Cannot compute speed at timestamp {serie_gnss_approx_pvt['time']}: {e}"
             warnings.warn(txt)
             np_speed_estimate = np.full_like(np_rx_pos, np.nan, dtype=float)
+            residuals_mps = np.full_like(pr_rate, np.nan, dtype=float)
 
         # Add ECEF coordinates
         serie_gnss_approx_pvt["vx_rx_mps"] = float(np_speed_estimate[0][0])
@@ -323,14 +326,13 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
             serie_gnss_approx_pvt["cov_vbvb_rx_mps"] = float(cov[3][3])
 
         # Add residuals
-        residuals_mps = pr_rate - np_geometry_matrix @ np_speed_estimate
-        group_gnss_raw["residuals_mps"] = residuals
+        group_gnss_raw["residuals_mps"] = residuals_mps
 
     return group_gnss_raw, serie_gnss_approx_pvt
 
 def gauss_newton(np_pr:np.ndarray, np_weight:np.ndarray, np_rx_pos:np.ndarray, np_sv_position:np.ndarray,
                  convergence_tolerance:float=1e-7, max_iteration:int=10) \
-        -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Computes position using Gauss Newton method.
 
@@ -351,7 +353,7 @@ def gauss_newton(np_pr:np.ndarray, np_weight:np.ndarray, np_rx_pos:np.ndarray, n
     :param np_sv_position: ECEF  SV position vector (m)
     :param convergence_tolerance: Min acceptable position difference between two iterations
     :param max_iteration: Maximum allowed iterations
-    :return: ECEF position (m), geometry matrix, variance-covariance matrix, Dilution Of Precision
+    :return: ECEF position (m), geometry matrix, variance-covariance matrix, Dilution Of Precision, residuals
     """
     for i in range(max_iteration):
         # Compute delta pseudorange
@@ -364,7 +366,7 @@ def gauss_newton(np_pr:np.ndarray, np_weight:np.ndarray, np_rx_pos:np.ndarray, n
 
         # Compute delta position estimate
         try:
-            np_estimate_delta, cov, dop = weighted_least_square(np_delta_pr, np_geometry_matrix, np_weight)
+            np_estimate_delta, cov, dop, residuals = weighted_least_square(np_delta_pr, np_geometry_matrix, np_weight)
 
             # Update position estimate
             np_rx_pos += np_estimate_delta.ravel()
@@ -376,9 +378,10 @@ def gauss_newton(np_pr:np.ndarray, np_weight:np.ndarray, np_rx_pos:np.ndarray, n
             txt = f"Cannot compute position: {e}"
             warnings.warn(txt)
             np_rx_pos = np.full_like(np_rx_pos, np.nan, dtype=float)
+            residuals = np.full_like(np_delta_pr, np.nan, dtype=float)
             break
 
-    return np_rx_pos, np_geometry_matrix, cov, dop
+    return np_rx_pos, np_geometry_matrix, cov, dop, residuals
 
 
 
