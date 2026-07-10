@@ -60,6 +60,8 @@ Raw measurements. Can also contain BITS ephemeris dataframe.
 | e_y                | Steering vector in the Y direction                                         |               | float        |
 | e_z                | Steering vector in the Z direction                                         |               | float        |
 | e_b                | Steering vector in the b direction                                         |               | float        |
+| elevation_rad      | SV elevation                                                               | radian        | float        |
+| azimuth_rad        | SV azimuth                                                                 | radian        | float        |
 | clock_corr_m       | Sum of the clock corrections to be applied to corr_pr_m                    | metre         | float        |
 | poly_clock_corr_m  | Polynomial clock correction                                                | metre         | float        |
 | relat_clock_corr_m | Relativistic clock correction                                              | metre         | float        |
