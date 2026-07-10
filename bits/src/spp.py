@@ -150,7 +150,7 @@ def compute_speed_estimate(pr_rate: np.ndarray, geometry_matrix: np.ndarray, sv_
         txt = f"Not enough satellites in view (need at least {geometry_matrix.shape[1]} found {geometry_matrix.shape[0]})."
         raise PositionEstimationError(txt)
 
-    sv_relative_speed = np.sum(sv_speed * geometry_matrix[:, :-1], axis=1).reshape(-1, 1)
+    sv_relative_speed = np.sum(sv_speed * geometry_matrix[:, :-1], axis=1).reshape(-1, 1) # TODO sum or norm ?
     corrected_pr_rate = pr_rate + sv_relative_speed
 
     v_hat, cov_v, dop = weighted_least_square(corrected_pr_rate, geometry_matrix, weight_matrix)
@@ -160,7 +160,7 @@ def compute_speed_estimate(pr_rate: np.ndarray, geometry_matrix: np.ndarray, sv_
 
 def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: pd.DataFrame=None,
                                  approx_pvt: tuple[float, float, float]=(0, 0, 0), convergence_tolerance:float=1e-7,
-                                 max_iteration: int=10, weights_column:str="weight") -> pd.DataFrame:
+                                 max_iteration: int=10, weights_column:str="weight") -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Computes position without any corrections.
     sources:    https://gssc.esa.int/navipedia/index.php?title=Code_Based_Positioning_(SPS)
@@ -171,7 +171,7 @@ def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: 
     :param convergence_tolerance: Min acceptable position difference between two iterations
     :param max_iteration: Maximum allowed iterations
     :param weights_column: Column name of satellite weights (if any). Weight should be the inverse of measurement noise.
-    :return: GNSS pvt dataframe
+    :return: GNSS pvt dataframe, GNSS raw dataframe (with residuals and geometry matrix)
     """
     # Use corrected pseudorange if corrections already applied
     if {"corr_pr_m"}.issubset(pd_gnss_raw.columns):
@@ -186,6 +186,7 @@ def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: 
 
     # Loop over all timestamp
     approx_pvt_serie_list = []
+    raw_pd_list = []
     for raw_time, group in tqdm(pd_gnss_raw.groupby("time"), total=len(pd_gnss_raw["time"].unique()),
                          desc="Computing position"):
         # Find closest RX position initialization
@@ -198,12 +199,14 @@ def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: 
                                             convergence_tolerance=convergence_tolerance,
                                             max_iteration=max_iteration, weights_column=weights_column,
                                             pr_column_name=pr_column_name))
+        raw_pd_list.append(group_gnss_raw)
         approx_pvt_serie_list.append(serie_gnss_approx_pvt)
 
     # Merge all timestamps
+    pd_gnss_raw = pd.concat(raw_pd_list, ignore_index=True)
     pd_gnss_approx_pvt = pd.DataFrame(approx_pvt_serie_list)
 
-    return  pd_gnss_approx_pvt
+    return  pd_gnss_approx_pvt, pd_gnss_raw
 
 def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_approx_pvt: pd.Series,
                                     convergence_tolerance:float=1e-7, max_iteration: int=10, weights_column:str="weight",
@@ -249,6 +252,9 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
     serie_gnss_approx_pvt["z_rx_m"] = float(np_rx_pos[2])
     serie_gnss_approx_pvt["b_rx_m"] = float(np_rx_pos[3])
 
+    # Add sv elevation and azimuth
+    group_gnss_raw = get_sv_el_az(group_gnss_raw,  serie_gnss_approx_pvt.to_frame().T)
+
     # Add WGS coordinates
     if not np.isnan(np_rx_pos).any():
         serie_gnss_approx_pvt['lat'], serie_gnss_approx_pvt['lon'], serie_gnss_approx_pvt['alt'] \
@@ -268,6 +274,16 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
         serie_gnss_approx_pvt["cov_zz_rx_m"] = float(cov[2][2])
         serie_gnss_approx_pvt["cov_bz_rx_m"] = float(cov[2][3])
         serie_gnss_approx_pvt["cov_bb_rx_m"] = float(cov[3][3])
+
+    # Add residuals
+    residuals = np_pr - np_geometry_matrix @ np_rx_pos
+    group_gnss_raw["residuals_m"] = residuals
+
+    # Add steering vectors
+    group_gnss_raw["e_x"] = np_geometry_matrix[:, 0]
+    group_gnss_raw["e_y"] = np_geometry_matrix[:, 1]
+    group_gnss_raw["e_z"] = np_geometry_matrix[:, 2]
+    group_gnss_raw["e_b"] = np_geometry_matrix[:, 3]
 
     # Add Dilution Of Precision
     serie_gnss_approx_pvt["DOP"] = float(dop)
@@ -305,6 +321,10 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
             serie_gnss_approx_pvt["cov_vzvz_rx_mps"] = float(cov[2][2])
             serie_gnss_approx_pvt["cov_vbvz_rx_mps"] = float(cov[2][3])
             serie_gnss_approx_pvt["cov_vbvb_rx_mps"] = float(cov[3][3])
+
+        # Add residuals
+        residuals_mps = pr_rate - np_geometry_matrix @ np_speed_estimate
+        group_gnss_raw["residuals_mps"] = residuals
 
     return group_gnss_raw, serie_gnss_approx_pvt
 
@@ -378,9 +398,6 @@ def get_sv_el_az(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> pd.Dat
             # Get all raw measurements at timestamp
             pd_gnss_raw_at_timestamp = pd_gnss_raw[pd_gnss_raw["time"] == timestamp].copy()
             pd_gnss_pvt_at_timestamp = pd_gnss_pvt[pd_gnss_pvt["time"] == timestamp]
-            if len(pd_gnss_pvt_at_timestamp) != 1:
-                txt = f"Position estimate has several possibilities at timestamp {timestamp}. Using first instance to compute az & el."
-                warnings.warn(txt, UserWarning)
             pd_ser_gnss_pvt_at_timestamp = pd_gnss_pvt_at_timestamp.iloc[0]
 
             # Build RX & SV position
@@ -500,7 +517,7 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
         print("3/9: Computing rough position estimate...")
 
     # Get a first position estimate
-    pd_gnss_pvt = get_approx_position_estimate(pd_gnss_raw, approx_pvt=approx_pvt, convergence_tolerance=10000)
+    pd_gnss_pvt, pd_gnss_raw = get_approx_position_estimate(pd_gnss_raw, approx_pvt=approx_pvt, convergence_tolerance=10000)
 
     if verbose:
         print("4/9: Correcting receiver clock...")
@@ -514,13 +531,12 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
     if verbose:
         print("6/9: Correcting atmospheric errors...")
     # Correct atmospheric error
-    pd_gnss_raw = get_sv_el_az(pd_gnss_raw, pd_gnss_pvt)
     pd_gnss_raw = get_atmospheric_corrections(pd_gnss_raw, pd_gnss_pvt)
 
     if verbose:
         print("7/9: Computing a better position estimate...")
     # Compute a corrected position estimate
-    pd_gnss_pvt = get_approx_position_estimate(pd_gnss_raw, pd_gnss_approx_pvt=pd_gnss_pvt, convergence_tolerance=100)
+    pd_gnss_pvt, pd_gnss_raw = get_approx_position_estimate(pd_gnss_raw, pd_gnss_approx_pvt=pd_gnss_pvt, convergence_tolerance=100)
 
     if verbose:
         print("8/9: Correcting receiver clock and finding satellites, again...")
@@ -532,6 +548,6 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
         print("9/9: Computing final position estimate...")
 
     # Compute a final position estimate
-    pd_gnss_pvt = get_approx_position_estimate(pd_gnss_raw, pd_gnss_approx_pvt=pd_gnss_pvt)
+    pd_gnss_pvt, pd_gnss_raw = get_approx_position_estimate(pd_gnss_raw, pd_gnss_approx_pvt=pd_gnss_pvt)
 
     return pd_gnss_pvt, pd_gnss_raw

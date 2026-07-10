@@ -70,7 +70,7 @@ def test_azimuth_elevation():
         raw_filepath = os.path.join(az_el_skydel_raw_directory_path, filename)
         pd_az_el_raw = pd.concat([pd_az_el_raw, gnss_raw.skydel_raw(raw_filepath).iloc[:2]], axis=0)
     pd_az_el_raw = pd_az_el_raw[pd_az_el_raw["gnss_id"] == "gps"].reset_index()
-    pd_az_el_pvt = get_approx_position_estimate(pd_az_el_raw, convergence_tolerance=100)
+    pd_az_el_pvt, _ = get_approx_position_estimate(pd_az_el_raw, convergence_tolerance=100)
     pd_az_el_raw = get_sv_el_az(pd_az_el_raw, pd_az_el_pvt)
     pd_az_el_raw["el_diff"] = pd_az_el_raw["elevation_rad"] - pd_az_el_raw["Body Elevation (rad)"]
     pd_az_el_raw["az_diff"] = pd_az_el_raw["azimuth_rad"] - pd_az_el_raw["Body Azimuth (rad)"]
