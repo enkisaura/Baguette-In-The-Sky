@@ -533,7 +533,7 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
                           approx_pvt: tuple[float, float, float]=(0, 0, 0), verbose=False) \
         -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Computes position estimate using OLS and clock and atmospheric corrections.
+    Computes position estimate using clock and atmospheric corrections.
     source: https://gssc.esa.int/navipedia/index.php?title=GNSS_Measurements_Modelling
     :param pd_gnss_raw: GNSS raw dataframe from BITS parser
     :param pd_ephemeris: ephemeris dataframe from BITS parser
