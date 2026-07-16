@@ -10,7 +10,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: branch-origin-fromdev
-        if: github.head_ref != 'dev'
+        env:
+          BASE: ${{ github.base_ref }}
+          HEAD: ${{ github.head_ref }}
         run: |
-          echo "Pull request to main must originate from dev (curent branch : ${{ github.head_ref }})"
-          exit 1
+          declare -A ALLOWED
+          ALLOWED[main]="dev"
+
+          RULE="${ALLOWED[$BASE]}"
+
+          if [ -z "$RULE" ]; then
+            echo "Branch is not main, no required branch origin."
+            exit 0
+          fi
+
+          MATCH=0
+          IFS='|' read -ra PATTERNS <<< "$RULE"
+          for PATTERN in "${PATTERNS[@]}"; do
+            if [[ "$HEAD" == $PATTERN ]]; then
+              MATCH=1
+              break
+            fi
+          done
+
+          if [ "$MATCH" -eq 0 ]; then
+            echo "Pull request to main must originate from dev (curent branch : ${{ github.head_ref }})"
+            exit 1
+          fi
