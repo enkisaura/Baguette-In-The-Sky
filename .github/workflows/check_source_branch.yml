@@ -1,0 +1,16 @@
+# .github/workflows/check-source-branch.yml
+name: branch-origin-test
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: branch-origin-fromdev
+        if: github.head_ref != 'dev'
+        run: |
+          echo "Pull request to main must originate from dev (curent branch : ${{ github.head_ref }})"
+          exit 1
