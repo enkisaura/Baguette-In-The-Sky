@@ -207,8 +207,7 @@ def get_approx_position_estimate(pd_gnss_raw: pd.DataFrame, pd_gnss_approx_pvt: 
     # Loop over all timestamp
     approx_pvt_serie_list = []
     raw_pd_list = []
-    for raw_time, group in tqdm(pd_gnss_raw.groupby("time"), total=len(pd_gnss_raw["time"].unique()),
-                         desc="Computing position"):
+    for raw_time, group in pd_gnss_raw.groupby("time"):
         # Find closest RX position initialization
         pvt_closest_time = min(pvt_time_list, key=lambda d: abs(d - raw_time))
         pvt_at_timestamp_serie = pd_gnss_approx_pvt[pd_gnss_approx_pvt["time"] == pvt_closest_time].iloc[0]
