@@ -376,14 +376,14 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
 
         # Add clock bias
         if len(unique_gnss_const_list) == 1:
-            serie_gnss_approx_pvt["vb_rx_mps"] = float(np_speed_estimate[3])
+            serie_gnss_approx_pvt["vb_rx_mps"] = float(np_speed_estimate[3].item())
         else:
             if "vb_rx_mps" in serie_gnss_approx_pvt:
                 serie_gnss_approx_pvt.drop("vb_rx_mps", inplace=True)
             i = 3
             for constellation in unique_gnss_const_list:
                 b_name = f"vb{constellation}_rx_mps"
-                serie_gnss_approx_pvt[b_name] = float(np_speed_estimate[i])
+                serie_gnss_approx_pvt[b_name] = float(np_speed_estimate[i].item())
                 i += 1
 
         # Add variance-covariance matrix
