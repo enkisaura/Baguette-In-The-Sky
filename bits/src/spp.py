@@ -331,12 +331,12 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
     group_gnss_raw["e_z"] = np_geometry_matrix[:, 2]
     # Add clock bias
     if len(unique_gnss_const_list) == 1:
-        serie_gnss_approx_pvt["e_b"] = np_geometry_matrix[:, 3]
+        group_gnss_raw["e_b"] = np_geometry_matrix[:, 3]
     else:
         i=3
         for constellation in unique_gnss_const_list:
             b_name = f"e_b{constellation}"
-            serie_gnss_approx_pvt[b_name] = np_geometry_matrix[:, i]
+            group_gnss_raw[b_name] = np_geometry_matrix[:, i]
             i+=1
 
     # Correct time
