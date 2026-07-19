@@ -10,7 +10,6 @@ maintainers = [
   {name = "Enki Saura", email = "esaura@ikosconsulting.com"}
 ]
 description = "This is an awesome script !"
-dynamic = ["version"]
 dependencies = [
     "pandas",
     "numpy",
