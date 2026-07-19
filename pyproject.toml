@@ -18,6 +18,7 @@ dependencies = [
     "pyproj",
     "folium",
     "tzlocal",
+    "tqdm",
 ]
 requires-python = ">= 3.12"
 
