@@ -67,22 +67,43 @@ Raw measurements. Can also contain BITS ephemeris dataframe.
 ### BITS PVT dataframe
 Computed position speed and time.
 
-| Name | Description | Unit | Type |
-|------|-------------|------|------|
-| time | Receiver timestamp | | GnssTimestamp |
-| corr_time | Corrected receiver timestamp | | GnssTimestamp |
-| lat | Latitude of the receiver (WGS 84) | degree | float |
-| lon | Longitude of the receiver (WGS 84) | degree | float |
-| alt | Altitude of the receiver (WGS 84) | metre | float |
-| x_rx_m | X ECEF coordinate of the receiver | metre | float |
-| y_rx_m | Y ECEF coordinate of the receiver | metre | float |
-| z_rx_m | Z ECEF coordinate of the receiver | metre | float |
-| b_rx_m | Receiver remaining clock bias from corr_time | metre | float |
-| ols_convergence | Distance from last computed position | metre | float |
-| vx_rx_mps | X ECEF coordinate of the receiver speed | metre/second | float |
-| vy_rx_mps | Y ECEF coordinate of the receiver speed | metre/second | float |
-| vz_rx_mps | Z ECEF coordinate of the receiver speed | metre/second | float |
-| vb_rx_mps | Receiver clock drift | metre/second | float |
+| Name            | Description                                  | Unit           | Type          |
+|-----------------|----------------------------------------------|----------------|---------------|
+| time            | Receiver timestamp                           |                | GnssTimestamp |
+| corr_time       | Corrected receiver timestamp                 |                | GnssTimestamp |
+| lat             | Latitude of the receiver (WGS 84)            | degree         | float         |
+| lon             | Longitude of the receiver (WGS 84)           | degree         | float         |
+| alt             | Altitude of the receiver (WGS 84)            | metre          | float         |
+| x_rx_m          | X ECEF coordinate of the receiver            | metre          | float         |
+| y_rx_m          | Y ECEF coordinate of the receiver            | metre          | float         |
+| z_rx_m          | Z ECEF coordinate of the receiver            | metre          | float         |
+| b_rx_m          | Receiver remaining clock bias from corr_time | metre          | float         |
+| cov_xx_rx_m     | Variance term of x_rx_m                      | metre²         | float         |
+| cov_yy_rx_m     | Variance term of y_rx_m                      | metre²         | float         |
+| cov_zz_rx_m     | Variance term of z_rx_m                      | metre²         | float         |
+| cov_bb_rx_m     | Variance term of b_rx_m                      | metre²         | float         |
+| cov_yx_rx_m     | Covariance term of x_rx_m/y_rx_m             | metre²         | float         |
+| cov_zx_rx_m     | Covariance term of x_rx_m/z_rx_m             | metre²         | float         |
+| cov_bx_rx_m     | Covariance term of x_rx_m/b_rx_m             | metre²         | float         |
+| cov_zy_rx_m     | Covariance term of y_rx_m/z_rx_m             | metre²         | float         |
+| cov_by_rx_m     | Covariance term of y_rx_m/b_rx_m             | metre²         | float         |
+| cov_bz_rx_m     | Covariance term of z_rx_m/b_rx_m             | metre²         | float         |
+| vx_rx_mps       | X ECEF coordinate of the receiver speed      | metre/second   | float         |
+| vy_rx_mps       | Y ECEF coordinate of the receiver speed      | metre/second   | float         |
+| vz_rx_mps       | Z ECEF coordinate of the receiver speed      | metre/second   | float         |
+| vb_rx_mps       | Receiver clock drift                         | metre/second   | float         |
+| cov_vxvx_rx_mps | Variance term of vx_rx_mps                   | metre²/second² | float         |
+| cov_vyvy_rx_mps | Variance term of vy_rx_mps                   | metre²/second² | float         |
+| cov_vzvz_rx_mps | Variance term of vz_rx_mps                   | metre²/second² | float         |
+| cov_vbvb_rx_mps | Variance term of vb_rx_mps                   | metre²/second² | float         |
+| cov_vyvx_rx_mps | Covariance term of vx_rx_mps/vy_rx_mps       | metre²/second² | float         |
+| cov_vzvx_rx_mps | Covariance term of vx_rx_mps/vz_rx_mps       | metre²/second² | float         |
+| cov_vbvx_rx_mps | Covariance term of vx_rx_mps/vb_rx_mps       | metre²/second² | float         |
+| cov_vzvy_rx_mps | Covariance term of vy_rx_mps/vz_rx_mps       | metre²/second² | float         |
+| cov_vbvy_rx_mps | Covariance term of vy_rx_mps/vb_rx_mps       | metre²/second² | float         |
+| cov_vbvz_rx_mps | Covariance term of vz_rx_mps/vb_rx_mps       | metre²/second² | float         |
+| DOP             | Dilution Of Precision                        |                | float         |
+
 ## Module `bits.src.const`
 
 Constant to be used in BITS
