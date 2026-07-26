@@ -11,22 +11,33 @@ __version__ = "0.0.1"
 import pandas as pd
 import numpy as np
 import warnings
+from typing import NamedTuple
 from bits.src.reference_frame_object import GnssTimestamp
 from bits.src.convert import space_conversion, time_conversion
 from bits.src import const
 from bits.src.parsers.ephemeris import rinex_nav
 from bits.src.utils import check_dataframe
 
+
+class SVState(NamedTuple):
+    x: np.ndarray
+    y: np.ndarray
+    z: np.ndarray
+    vx: np.ndarray
+    vy: np.ndarray
+    vz: np.ndarray
+    ax: np.ndarray
+    ay: np.ndarray
+    az: np.ndarray
+
+
 def orbit_based_sv_model(sqrta: np.ndarray, deltan: np.ndarray, m0: np.ndarray, e: np.ndarray, omega: np.ndarray,
                          omega0: np.ndarray, omegadot: np.ndarray, i0: np.ndarray, idot: np.ndarray, cis: np.ndarray,
                          cic: np.ndarray, crs: np.ndarray, crc: np.ndarray, cus: np.ndarray,  cuc: np.ndarray,
                          toe: np.ndarray, tow: None|np.ndarray = None, tk: None|np.ndarray = None,
-                         ek_iterations:int=5) \
-        -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,
-        np.ndarray, np.ndarray]:
+                         ek_iterations:int=5) -> SVState:
     """
     Compute GPS, Galileo or Beidou SV states.
-    Computes one satellite position at a specific time using its ephemeris parameters.
 
     Based on: https://www.navcen.uscg.gov/sites/default/files/pdf/gps/IS_GPS_200M.pdf
     (Table Broadcast Navigation User Equations)
@@ -50,7 +61,7 @@ def orbit_based_sv_model(sqrta: np.ndarray, deltan: np.ndarray, m0: np.ndarray, 
     :param tow: Time of week at which the satellite's position should be computed
     :param tk: Elapsed time since ephemeris data reference
     :param ek_iterations: Number of iterations to compute the eccentric anomaly
-    :return: (x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef, ek) -> Satellite position,
+    :return: SVState(x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef)
     speed and acceleration in ECEF and eccentric anomaly
     """
     # Elapsed time since ephemeris
@@ -149,7 +160,7 @@ def orbit_based_sv_model(sqrta: np.ndarray, deltan: np.ndarray, m0: np.ndarray, 
                  + yk * const.OMEGA_E ** 2)
     zk_dotdot = -const.NU * (zk / (rk ** 3)) + F * ((3 - 5 * (zk / rk) ** 2) * (zk / rk))
 
-    return xk, yk, zk, xk_dot, yk_dot, zk_dot, xk_dotdot, yk_dotdot, zk_dotdot
+    return SVState(xk, yk, zk, xk_dot, yk_dot, zk_dot, xk_dotdot, yk_dotdot, zk_dotdot)
 
 
 def _glo_equations_of_motion(state: np.ndarray,
@@ -223,14 +234,14 @@ def _rk4_step(state: np.ndarray, ddx: float, ddy: float, ddz: float, h: float) -
     return state + (h / 6.0) * (K1 + 2 * K2 + 2 * K3 + K4)
 
 
-def state_propagation_based_sv_model(pd_ephemeris_row: pd.Series, time: GnssTimestamp, step_s:float=30) -> tuple[float, float, float]:
+def state_propagation_based_sv_model(pd_ephemeris_row: pd.Series, time: GnssTimestamp, step_s:float=30) -> SVState:
     """
     Compute Glonass SV states.
     Computes one satellite position at a specific time using its ephemeris parameters.
     Based on https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation
     :param pd_ephemeris_row: Satellite ephemeris. Use a pd.Series parsed with the BITS ephemeris parser.
     :param time: Time at which the satellite's position should be computed
-    :return: (x_ecef, y_ecef, z_ecef) -> Satellite position in ECEF
+    :return: SVState(x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef)
     """
     required_columns = ["time_of_ephemeris", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2",]
 
@@ -306,7 +317,7 @@ def state_propagation_based_sv_model(pd_ephemeris_row: pd.Series, time: GnssTime
     ay_ecef = -a_ecef_eci[0] * s + a_ecef_eci[1] * c
     az_ecef = a_ecef_eci[2]
 
-    return x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef
+    return SVState(x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef)
 
 
 def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, ephem_filepath: str= None) -> pd.DataFrame:
