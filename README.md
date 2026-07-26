@@ -37,32 +37,39 @@ Ephemeris parameters that can be found in a rinex nav file.
 ### BITS raw dataframe
 Raw measurements. Can also contain BITS ephemeris dataframe.
 
-| Name | Description | Unit | Type |
-|------|-------------|------|------|
-| time | Receiver timestamp | | GnssTimestamp |
-| corr_time | Corrected receiver timestamp | | GnssTimestamp |
-| pr_m | Pseudorange | metre | float |
-| corr_pr_m | Corrected pseudorange | metre | float |
-| pr_rate_mps | Pseudorange rate | metre/second | float |
-| doppler_hz | Doppler shift | 1/second | float |
-| sv_id | Satellite PRN number | | int |
-| gnss_id | GNSS constellation ID (BITS normalized, cf normalize_gnss_constellation()) | | str |
-| x_sv_m | X ECEF coordinate of the satellite | metre | float |
-| y_sv_m | Y ECEF coordinate of the satellite | metre | float |
-| z_sv_m | Z ECEF coordinate of the satellite | metre | float |
-| vx_sv_mps | X ECEF coordinate of the satellite speed | metre/second | float |
-| vy_sv_mps | Y ECEF coordinate of the satellite speed | metre/second | float |
-| vz_sv_mps | Z ECEF coordinate of the satellite speed | metre/second | float |
-| ax_sv_mpss | X ECEF coordinate of the satellite acceleration | metre/second² | float |
-| ay_sv_mpss | Y ECEF coordinate of the satellite acceleration | metre/second² | float |
-| az_sv_mpss | Z ECEF coordinate of the satellite acceleration | metre/second² | float |
-| clock_corr_m | Sum of the clock corrections to be applied to corr_pr_m | metre | float |
-| poly_clock_corr_m | Polynomial clock correction | metre | float |
-| relat_clock_corr_m | Relativistic clock correction | metre | float |
-| tgd_clock_corr_m | Time Group Delay (clock correction) | metre | float |
-| atm_corr_m | Sum of the atmospheric corrections to be applied to corr_pr_m | metre | float |
-| iono_corr_m | Ionospheric correction | metre | float |
-| tropo_corr_m | Tropospheric correction | metre | float |
+| Name               | Description                                                                | Unit          | Type         |
+|--------------------|----------------------------------------------------------------------------|---------------|--------------|
+| time               | Receiver timestamp                                                         |               | GnssTimestamp |
+| corr_time          | Corrected receiver timestamp                                               |               | GnssTimestamp |
+| pr_m               | Pseudorange                                                                | metre         | float        |
+| corr_pr_m          | Corrected pseudorange                                                      | metre         | float        |
+| pr_rate_mps        | Pseudorange rate                                                           | metre/second  | float        |
+| doppler_hz         | Doppler shift                                                              | 1/second      | float        |
+| sv_id              | Satellite PRN number                                                       |               | int          |
+| gnss_id            | GNSS constellation ID (BITS normalized, cf normalize_gnss_constellation()) |               | str          |
+| x_sv_m             | X ECEF coordinate of the satellite                                         | metre         | float        |
+| y_sv_m             | Y ECEF coordinate of the satellite                                         | metre         | float        |
+| z_sv_m             | Z ECEF coordinate of the satellite                                         | metre         | float        |
+| vx_sv_mps          | X ECEF coordinate of the satellite speed                                   | metre/second  | float        |
+| vy_sv_mps          | Y ECEF coordinate of the satellite speed                                   | metre/second  | float        |
+| vz_sv_mps          | Z ECEF coordinate of the satellite speed                                   | metre/second  | float        |
+| ax_sv_mpss         | X ECEF coordinate of the satellite acceleration                            | metre/second² | float        |
+| ay_sv_mpss         | Y ECEF coordinate of the satellite acceleration                            | metre/second² | float        |
+| az_sv_mpss         | Z ECEF coordinate of the satellite acceleration                            | metre/second² | float        |
+| e_x                | Steering vector in the X direction                                         |               | float        |
+| e_y                | Steering vector in the Y direction                                         |               | float        |
+| e_z                | Steering vector in the Z direction                                         |               | float        |
+| e_b                | Steering vector in the b direction                                         |               | float        |
+| elevation_rad      | SV elevation                                                               | radian        | float        |
+| azimuth_rad        | SV azimuth                                                                 | radian        | float        |
+| clock_corr_m       | Sum of the clock corrections to be applied to corr_pr_m                    | metre         | float        |
+| poly_clock_corr_m  | Polynomial clock correction                                                | metre         | float        |
+| relat_clock_corr_m | Relativistic clock correction                                              | metre         | float        |
+| tgd_clock_corr_m   | Time Group Delay (clock correction)                                        | metre         | float        |
+| atm_corr_m         | Sum of the atmospheric corrections to be applied to corr_pr_m              | metre         | float        |
+| iono_corr_m        | Ionospheric correction                                                     | metre         | float        |
+| tropo_corr_m       | Tropospheric correction                                                    | metre         | float        |
+| residuals_m        | Pseudorange residuals after position estimation                            | metre         | float        |
 
 ### BITS PVT dataframe
 Computed position speed and time.

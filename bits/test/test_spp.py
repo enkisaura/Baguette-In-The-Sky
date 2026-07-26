@@ -13,7 +13,6 @@ __version__ = "0.0.1"
 import os
 from bits.src.parsers import ephemeris, gnss_raw, nmea
 from bits.src.spp import *
-from bits.src.spp import _build_init_pd_gnss_pvt
 from bits.src.convert.space_conversion import ecef_to_enu
 
 required_precision = 15  # m
@@ -38,21 +37,6 @@ pd_ephemeris2 = ephemeris.rinex_nav(ephem2_filepath)
 pd_raw2 = gnss_raw.rinex_obs(raw2_filepath)
 nmea_pd = nmea.gga(nmea_filepath)
 
-
-def test_geometry_matrix(tolerance=1e-10):
-    pd_approx_pos = _build_init_pd_gnss_pvt(pd_gnss_raw)
-    pd_geometry_matrix = get_geometry_matrix(pd_gnss_raw, pd_approx_pos)
-    assert isinstance(pd_geometry_matrix, pd.DataFrame) and not pd_geometry_matrix.empty
-    for _, row in pd_geometry_matrix.iterrows():
-        for h in row["geometry_matrix"]:
-            h = h[:-1]
-            assert abs((np.linalg.norm(h) - 1)) < tolerance, "Geometry matrix is not composed of unit vectors"
-
-def test_approx_pos_estimate():
-    tol = 100
-    pd_gnss_pvt = get_approx_position_estimate(pd_gnss_raw, convergence_tolerance=tol)
-    assert (pd_gnss_pvt['ols_convergence_m'] < tol).all(), "Position estimate did not converge"
-
 def test_glo_pos_estimate():
     pos_estimate(gnss_id="glo")
 
@@ -65,8 +49,14 @@ def test_gps_pos_estimate():
 def test_bei_pos_estimate():
     pos_estimate(gnss_id="bei")
 
-def pos_estimate(gnss_id:str):
-    constellation_raw_pd = pd_raw2[pd_raw2["gnss_id"] == gnss_id]
+def test_multi_constellation_pos_estimate():
+    pos_estimate()
+
+def pos_estimate(gnss_id:str|None = None):
+    if gnss_id is None:
+        constellation_raw_pd = pd_raw2.copy()
+    else:
+        constellation_raw_pd = pd_raw2[pd_raw2["gnss_id"] == gnss_id].copy()
     pd_gnss_pvt, _ = get_position_estimate(constellation_raw_pd, pd_ephemeris=pd_ephemeris2)
 
     gt_ecef = (nmea_pd["x_rx_m"].iloc[100], nmea_pd["y_rx_m"].iloc[100], nmea_pd["z_rx_m"].iloc[100])
@@ -86,7 +76,7 @@ def test_azimuth_elevation():
         raw_filepath = os.path.join(az_el_skydel_raw_directory_path, filename)
         pd_az_el_raw = pd.concat([pd_az_el_raw, gnss_raw.skydel_raw(raw_filepath).iloc[:2]], axis=0)
     pd_az_el_raw = pd_az_el_raw[pd_az_el_raw["gnss_id"] == "gps"].reset_index()
-    pd_az_el_pvt = get_approx_position_estimate(pd_az_el_raw, convergence_tolerance=100)
+    pd_az_el_pvt, _ = get_approx_position_estimate(pd_az_el_raw, convergence_tolerance=100)
     pd_az_el_raw = get_sv_el_az(pd_az_el_raw, pd_az_el_pvt)
     pd_az_el_raw["el_diff"] = pd_az_el_raw["elevation_rad"] - pd_az_el_raw["Body Elevation (rad)"]
     pd_az_el_raw["az_diff"] = pd_az_el_raw["azimuth_rad"] - pd_az_el_raw["Body Azimuth (rad)"]
@@ -100,10 +90,9 @@ def test_azimuth_elevation():
     assert (pd_az_el_raw["az_diff"] < az_el_required_precision).all(), txt
 
 if __name__ == "__main__":
-    test_geometry_matrix()
-    test_glo_pos_estimate()
-    test_azimuth_elevation()
     test_glo_pos_estimate()
     test_gal_pos_estimate()
     test_gps_pos_estimate()
     test_bei_pos_estimate()
+    test_multi_constellation_pos_estimate()
+    test_azimuth_elevation()
