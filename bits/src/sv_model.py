@@ -396,7 +396,7 @@ def retrieve_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = N
             else:
                 pd_ephemeris = rinex_nav(ephem_filepath)
         # Find corresponding ephemeris for each SV from gnss_raw
-        merged = pd_gnss_raw.merge(pd_ephemeris, on=['gnss_id', 'sv_id'], suffixes=('', '_navdata'))
+        merged = pd_gnss_raw.merge(pd_ephemeris, on=['sv_id'], suffixes=('', '_navdata'))
         # Find difference between ephemeris and gnss_raw timestamp
         merged['time_diff'] = (
             abs(merged["time"] - merged[f'time_of_ephemeris']).astype('timedelta64[ns]'))

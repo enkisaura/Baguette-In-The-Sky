@@ -52,9 +52,10 @@ def rinex_nav(filepath):
     # Rename and rearrange
     indexes = pd_ephemeris.index
     pd_ephemeris["gnss_id"] = indexes.get_level_values(1)
-    pd_ephemeris["sv_id"] = pd_ephemeris["gnss_id"].apply(lambda sv: int(sv[1:]))
+    pd_ephemeris["prn_id"] = pd_ephemeris["gnss_id"].apply(lambda sv: int(sv[1:]))
     pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(lambda sv: sv[0])
     pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(normalize_gnss_constellation)
+    pd_ephemeris["sv_id"] = pd_ephemeris["gnss_id"].astype(str) + pd_ephemeris["prn_id"].astype(str)  # Add sv_id
     pd_ephemeris["time_rinex"] = indexes.get_level_values(0)
 
 
