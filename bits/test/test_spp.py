@@ -22,7 +22,6 @@ gt = (45.7615208,-1.1411692,0)
 gt_speed = (0, 0, 0)
 
 test_data_directory_path = os.path.join(os.getcwd(), "bits", "test", "test_data")
-ephem_filepath = os.path.join(test_data_directory_path, "gnss_raw", "rinex_v2.rnx")
 raw_filepath = os.path.join(test_data_directory_path, "gnss_raw", "rx1_1")
 az_el_ephem_filepath = os.path.join(test_data_directory_path, "rinex_nav.rnx")
 az_el_skydel_raw_directory_path = os.path.join(test_data_directory_path, "skydel_raw")
@@ -30,9 +29,7 @@ ephem2_filepath = os.path.join(test_data_directory_path, "TLSG00FRA_R_2026124000
 raw2_filepath = os.path.join(test_data_directory_path, "gnss_raw", "XXXX00FRA_R_20261241730_00U_01S_MO.rnx")
 nmea_filepath = os.path.join(test_data_directory_path, "20261241730_nmea.txt")
 
-pd_ephemeris = ephemeris.rinex_nav(ephem_filepath)
 pd_raw = gnss_raw.micdrop_raw(raw_filepath)
-pd_gnss_raw = get_sv_states(pd_raw, pd_ephemeris)
 pd_ephemeris2 = ephemeris.rinex_nav(ephem2_filepath)
 pd_raw2 = gnss_raw.rinex_obs(raw2_filepath)
 nmea_pd = nmea.gga(nmea_filepath)

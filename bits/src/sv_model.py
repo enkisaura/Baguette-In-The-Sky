@@ -13,53 +13,69 @@ import numpy as np
 import warnings
 from typing import NamedTuple
 from bits.src.reference_frame_object import GnssTimestamp
-from bits.src.convert import space_conversion, time_conversion
+from bits.src.convert import space_conversion
 from bits.src import const
 from bits.src.parsers.ephemeris import rinex_nav
 from bits.src.utils import check_dataframe
 
 
 class SVState(NamedTuple):
+    # Position
     x: np.ndarray
     y: np.ndarray
     z: np.ndarray
+
+    # Speed
     vx: np.ndarray
     vy: np.ndarray
     vz: np.ndarray
+
+    # Acceleration
     ax: np.ndarray
     ay: np.ndarray
     az: np.ndarray
 
 
-def orbit_based_sv_model(sqrta: np.ndarray, deltan: np.ndarray, m0: np.ndarray, e: np.ndarray, omega: np.ndarray,
-                         omega0: np.ndarray, omegadot: np.ndarray, i0: np.ndarray, idot: np.ndarray, cis: np.ndarray,
-                         cic: np.ndarray, crs: np.ndarray, crc: np.ndarray, cus: np.ndarray,  cuc: np.ndarray,
-                         toe: np.ndarray, tow: None|np.ndarray = None, tk: None|np.ndarray = None,
-                         ek_iterations:int=5) -> SVState:
+class KeplerianParameters(NamedTuple):
+    # Elliptical orbit shape
+    sqrta: np.ndarray  # Square root of semi-major axis
+    e: np.ndarray  # Eccentricity
+
+    # Orbit orientation
+    omega: np.ndarray  # Argument of perigee
+    omega0: np.ndarray  # Longitude of Ascending Node of Orbit Plane at Weekly Epoch
+    i0: np.ndarray  # Inclination angle at reference time
+
+    # Orbit corrections
+    # Secular corrections
+    deltan: np.ndarray  # Mean Motion difference from computed value at reference time
+    omegadot: np.ndarray  # Rate of right ascension difference
+    idot: np.ndarray  # Rate of inclination angle
+
+    # Harmonic corrections
+    cis: np.ndarray  # Amplitude of the sine harmonic correction term to the angle of inclination
+    cic: np.ndarray  # Amplitude of the cosine harmonic correction term to the angle of inclination
+    crs: np.ndarray  # Amplitude of the sine correction term to the orbit radius
+    crc: np.ndarray  # Amplitude of the cosine correction term to the orbit radius
+    cus: np.ndarray  # Amplitude of the sine harmonic correction term to the argument of latitude
+    cuc: np.ndarray  # Amplitude of the cosine harmonic correction term to the argument of latitude
+
+    # Satellite position on orbit
+    m0: np.ndarray  # Mean anomaly at reference time
+
+
+def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tow: None | np.ndarray = None,
+                          tk: None | np.ndarray = None, ek_iterations: int = 5) -> SVState:
     """
     Compute GPS, Galileo or Beidou SV states.
 
     Based on: https://www.navcen.uscg.gov/sites/default/files/pdf/gps/IS_GPS_200M.pdf
     (Table Broadcast Navigation User Equations)
 
-    :param sqrta: square root of semi-major axis
-    :param deltan: Mean Motion difference from computed value at reference time
-    :param m0: Mean anomaly at reference time
-    :param e: Eccentricity
-    :param omega: Argument of perigee
-    :param omega0: Longitude of Ascending Node of Orbit Plane at Weekly Epoch
-    :param omegadot: Rate of right ascension difference
-    :param i0: Inclination angle at reference time
-    :param idot: Rate of inclination angle
-    :param cis: Amplitude of the sine harmonic correction term to the angle of inclination
-    :param cic: Amplitude of the cosine harmonic correction term to the angle of inclination
-    :param crs: Amplitude of the sine correction term to the orbit radius
-    :param crc: Amplitude of the cosine correction term to the orbit radius
-    :param cus: Amplitude of the sine harmonic correction term to the argument of latitude
-    :param cuc: Amplitude of the cosine harmonic correction term to the argument of latitude
-    :param toe: Ephemeris data reference time of week
-    :param tow: Time of week at which the satellite's position should be computed
-    :param tk: Elapsed time since ephemeris data reference
+    :param orbit_param: Keplerian set of parameters that describe the orbit
+    :param toe: Ephemeris data reference time of week (secondes)
+    :param tow: Time of week at which the satellite's position should be computed (secondes)
+    :param tk: Elapsed time since ephemeris data reference (secondes)
     :param ek_iterations: Number of iterations to compute the eccentric anomaly
     :return: SVState(x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef)
     speed and acceleration in ECEF and eccentric anomaly
@@ -74,44 +90,44 @@ def orbit_based_sv_model(sqrta: np.ndarray, deltan: np.ndarray, m0: np.ndarray, 
         tk = np.where(tk > 302400, tk - 604800, tk)
         tk = np.where(tk < -302400, tk + 604800, tk)
 
-    a = sqrta ** 2  # Semi-major axis
+    a = orbit_param.sqrta ** 2  # Semi-major axis
     n0 = np.sqrt(const.NU / a ** 3)  # Computed mean motion (rad/sec)
-    n = n0 + deltan  # Corrected mean motion
-    mk = m0 + n * tk  # Mean anomaly
+    n = n0 + orbit_param.deltan  # Corrected mean motion
+    mk = orbit_param.m0 + n * tk  # Mean anomaly
 
     # Kepler’s equation(𝑀𝑘=𝐸𝑘 − 𝑒 sin 𝐸𝑘 ) may be solved for Eccentric anomaly(𝐸𝑘) by iteration:
     ek = mk  # Initial Value (radians)
     for i in range(ek_iterations):  # Refined Value, minimum of three iterations
-        ek = ek + (mk - ek + e * np.sin(ek)) / (1 - e * np.cos(ek))
+        ek = ek + (mk - ek + orbit_param.e * np.sin(ek)) / (1 - orbit_param.e * np.cos(ek))
 
     # True Anomaly (unambiguous quadrant)
-    vk = 2 * np.arctan(np.sqrt((1 + e) / (1 - e)) * np.tan(ek / 2))
+    vk = 2 * np.arctan(np.sqrt((1 + orbit_param.e) / (1 - orbit_param.e)) * np.tan(ek / 2))
 
-    phik = vk + omega  # Argument of latitude
+    phik = vk + orbit_param.omega  # Argument of latitude
 
     # Second harmonic perturbations
     # Argument of latitude correction
-    delta_uk = cuc * np.cos(2 * phik) + cus * np.sin(2 * phik)
+    delta_uk = orbit_param.cuc * np.cos(2 * phik) + orbit_param.cus * np.sin(2 * phik)
     # Radius correction
-    delta_rk = crc * np.cos(2 * phik) + crs * np.sin(2 * phik)
+    delta_rk = orbit_param.crc * np.cos(2 * phik) + orbit_param.crs * np.sin(2 * phik)
     # Inclination correction
-    delta_ik = cic * np.cos(2 * phik) + cis * np.sin(2 * phik)
+    delta_ik = orbit_param.cic * np.cos(2 * phik) + orbit_param.cis * np.sin(2 * phik)
 
     # Corrected argument of latitude
     uk = phik + delta_uk
 
     # Corrected radius
-    rk = a * (1 - e * np.cos(ek)) + delta_rk
+    rk = a * (1 - orbit_param.e * np.cos(ek)) + delta_rk
 
     # Corrected inclination
-    ik = i0 + delta_ik + idot * tk
+    ik = orbit_param.i0 + delta_ik + orbit_param.idot * tk
 
     # Position in the orbital plane
     xprimek = rk * np.cos(uk)
     yprimek = rk * np.sin(uk)
 
     # Corrected longitude of ascending node
-    omegak = omega0 + (omegadot - const.OMEGA_E) * tk - const.OMEGA_E * toe
+    omegak = orbit_param.omega0 + (orbit_param.omegadot - const.OMEGA_E) * tk - const.OMEGA_E * toe
 
     # Earth-fixed geocentric satellite coordinate
     xk = xprimek * np.cos(omegak) - yprimek * np.cos(ik) * np.sin(omegak)
@@ -120,20 +136,21 @@ def orbit_based_sv_model(sqrta: np.ndarray, deltan: np.ndarray, m0: np.ndarray, 
 
     # SV velocity
     # Eccentric Anomaly Rate
-    ek_dot = n/(1 - e * np.cos(ek))
+    ek_dot = n / (1 - orbit_param.e * np.cos(ek))
 
     # True Anomaly Rate
-    vk_dot = ek_dot * np.sqrt(1 - e**2) / (1 - e * np.cos(ek))
+    vk_dot = ek_dot * np.sqrt(1 - orbit_param.e ** 2) / (1 - orbit_param.e * np.cos(ek))
 
     # Corrected Inclination Angle Rate
-    dik_dt = idot + 2 * vk_dot * (cis * np.cos(2 * phik) - cic * np.sin(2 * phik))
+    dik_dt = orbit_param.idot + 2 * vk_dot * (orbit_param.cis * np.cos(2 * phik) - orbit_param.cic * np.sin(2 * phik))
     # Corrected Argument of Latitude Rate
-    uk_dot = vk_dot + 2 * vk_dot * (cus * np.cos(2 * phik) - cuc * np.sin(2 * phik))
+    uk_dot = vk_dot + 2 * vk_dot * (orbit_param.cus * np.cos(2 * phik) - orbit_param.cuc * np.sin(2 * phik))
     # Corrected Radius Rate
-    rk_dot = (e * a * ek_dot * np.sin(ek) + 2 * vk_dot * (crs * np.cos(2 * phik) - crc * np.sin(2 * phik)))
+    rk_dot = (orbit_param.e * a * ek_dot * np.sin(ek) + 2 * vk_dot * (orbit_param.crs * np.cos(2 * phik)
+                                                                      - orbit_param.crc * np.sin(2 * phik)))
 
     # Longitude of Ascending Node Rate
-    omegak_dot = omegadot - const.OMEGA_E
+    omegak_dot = orbit_param.omegadot - const.OMEGA_E
 
     # In-plane velocity
     xprimek_dot = rk_dot * np.cos(uk) - rk * uk_dot * np.sin(uk)
@@ -151,11 +168,11 @@ def orbit_based_sv_model(sqrta: np.ndarray, deltan: np.ndarray, m0: np.ndarray, 
 
     # SV acceleration
     # Oblate Earth acceleration Factor
-    F = -(3/2) * const.J2 * (const.NU/(rk**2)) * (const.RE/rk)**2
+    F = -(3 / 2) * const.J2 * (const.NU / (rk ** 2)) * (const.RE / rk) ** 2
 
     # Earth-Fixed acceleration (m/s2)
-    xk_dotdot = (-const.NU * (xk/(rk**3)) + F * ((1 - 5 * (zk/rk)**2) * (xk/rk)) + 2 * yk_dot * const.OMEGA_E
-                 + xk * const.OMEGA_E**2)
+    xk_dotdot = (-const.NU * (xk / (rk ** 3)) + F * ((1 - 5 * (zk / rk) ** 2) * (xk / rk)) + 2 * yk_dot * const.OMEGA_E
+                 + xk * const.OMEGA_E ** 2)
     yk_dotdot = (-const.NU * (yk / (rk ** 3)) + F * ((1 - 5 * (zk / rk) ** 2) * (yk / rk)) - 2 * xk_dot * const.OMEGA_E
                  + yk * const.OMEGA_E ** 2)
     zk_dotdot = -const.NU * (zk / (rk ** 3)) + F * ((3 - 5 * (zk / rk) ** 2) * (zk / rk))
@@ -164,7 +181,7 @@ def orbit_based_sv_model(sqrta: np.ndarray, deltan: np.ndarray, m0: np.ndarray, 
 
 
 def _glo_equations_of_motion(state: np.ndarray,
-                        ddx: float, ddy: float, ddz: float) -> np.ndarray:
+                             ddx: float, ddy: float, ddz: float) -> np.ndarray:
     """
     Function F(t, Y): derivatives of the state vector in ECI.
 
@@ -234,7 +251,7 @@ def _rk4_step(state: np.ndarray, ddx: float, ddy: float, ddz: float, h: float) -
     return state + (h / 6.0) * (K1 + 2 * K2 + 2 * K3 + K4)
 
 
-def state_propagation_based_sv_model(pd_ephemeris_row: pd.Series, time: GnssTimestamp, step_s:float=30) -> SVState:
+def state_propagation_based_sv_model(pd_ephemeris_row: pd.Series, time: GnssTimestamp, step_s: float = 30) -> SVState:
     """
     Compute Glonass SV states.
     Computes one satellite position at a specific time using its ephemeris parameters.
@@ -243,7 +260,7 @@ def state_propagation_based_sv_model(pd_ephemeris_row: pd.Series, time: GnssTime
     :param time: Time at which the satellite's position should be computed
     :return: SVState(x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef)
     """
-    required_columns = ["time_of_ephemeris", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2",]
+    required_columns = ["time_of_ephemeris", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2", ]
 
     if pd.isna(time) or pd_ephemeris_row[required_columns].isna().any():
         return [np.nan] * 3
@@ -257,10 +274,11 @@ def state_propagation_based_sv_model(pd_ephemeris_row: pd.Series, time: GnssTime
         pd_ephemeris_row["X"], pd_ephemeris_row["Y"], pd_ephemeris_row["Z"],
         pd_ephemeris_row["dX"], pd_ephemeris_row["dY"], pd_ephemeris_row["dZ"], pd_ephemeris_row["time_of_ephemeris"])
     ddxa, ddya, ddza = space_conversion.ecef_to_eci_position(
-        pd_ephemeris_row["dX2"], pd_ephemeris_row["dY2"], pd_ephemeris_row["dZ2"], pd_ephemeris_row["time_of_ephemeris"])
+        pd_ephemeris_row["dX2"], pd_ephemeris_row["dY2"], pd_ephemeris_row["dZ2"],
+        pd_ephemeris_row["time_of_ephemeris"])
 
     # 2. Numerical integration of differential equations that describe the motion of the satellites.
-    Y = np.array([xa, ya, za, dxa, dya, dza]) # Initial state
+    Y = np.array([xa, ya, za, dxa, dya, dza])  # Initial state
     remaining = delta_t
     sign = 1.0 if delta_t >= 0 else -1.0
 
@@ -287,7 +305,6 @@ def state_propagation_based_sv_model(pd_ephemeris_row: pd.Series, time: GnssTime
     # 3. Coordinates transformation back to ECEF reference system:
     # Position
     x_ecef, y_ecef, z_ecef = space_conversion.eci_to_ecef_position(x_eci, y_eci, z_eci, time)
-
 
     # Speed
     theta_ge = time.sidereal()
@@ -320,7 +337,8 @@ def state_propagation_based_sv_model(pd_ephemeris_row: pd.Series, time: GnssTime
     return SVState(x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef)
 
 
-def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, ephem_filepath: str= None) -> pd.DataFrame:
+def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
+                  ephem_filepath: str = None) -> pd.DataFrame:
     """
     Compute SV states using a pd.Dataframe ephemeris from the BITS ephemeris parser for GPS, Galileo, Glonass and
     Beidou.
@@ -379,7 +397,8 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, 
     pd_glo = pd_gnss[pd_gnss["gnss_id"] == "glo"]
     if not pd_glo.empty and check_dataframe(pd_gnss, glo_ephemeris_required_columns):
         pd_glo.loc[:, cols] = pd_glo.apply(
-            lambda row: state_propagation_based_sv_model(row, row["emission_time"]), axis=1, result_type="expand").to_numpy()
+            lambda row: state_propagation_based_sv_model(row, row["emission_time"]), axis=1,
+            result_type="expand").to_numpy()
     else:
         pd_glo = pd.DataFrame()
 
@@ -396,10 +415,11 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, 
                         else t.tow()
                         for const, t in zip(pd_gps["gnss_id"], pd_gps["time_of_ephemeris"])])
 
-        ephemeris_col_name = ["sqrta", "deltan", "m0", "e", "omega", "omega0", "omegadot", "i0", "idot",
-                              "cis", "cic", "crs", "crc", "cus", "cuc"]
-        ephemeris_np_list = [pd_gps[col].to_numpy() for col in ephemeris_col_name]
-        sv_state_np_tuple = orbit_based_sv_model(*ephemeris_np_list, toe=toe, tk=tk)
+        # Get Keplerian set of parameters alongside correction parameters
+        orbit_param = KeplerianParameters(**{field: pd_gps[field].to_numpy() for field in KeplerianParameters._fields})
+
+        # Compute SV state
+        sv_state_np_tuple = kepler_based_sv_model(orbit_param, toe=toe, tk=tk)
         pd_gps.loc[:, cols] = np.column_stack(sv_state_np_tuple)
     else:
         pd_gps = pd.DataFrame()
@@ -416,7 +436,7 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, 
     return pd_gnss
 
 
-def retrieve_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, ephem_filepath: str = None)\
+def retrieve_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None, ephem_filepath: str = None) \
         -> pd.DataFrame:
     """
     Finds the closest ephemeris parameters for each satellite vehicle
@@ -425,8 +445,9 @@ def retrieve_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = N
     :param ephem_filepath: Path of a rinex nav file
     :return: GNSS raw dataframe with ephemeris
     """
-    gps_ephemeris_required_columns = ["time", "time_of_ephemeris", "sqrta", "e", "i0", "idot", "omega0", "omega", "m0", "omegadot",
-                                  "deltan", "cuc", "cus", "crc", "crs", "cic", "cis"]
+    gps_ephemeris_required_columns = ["time", "time_of_ephemeris", "sqrta", "e", "i0", "idot", "omega0", "omega", "m0",
+                                      "omegadot",
+                                      "deltan", "cuc", "cus", "crc", "crs", "cic", "cis"]
     glo_ephemeris_required_columns = ["time", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2", ]
 
     # Check if ephemeris is already retrieved
@@ -435,7 +456,7 @@ def retrieve_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = N
     if not gps_present and not glo_present:
         if pd_ephemeris is None:
             if ephem_filepath is None:
-                pd_ephemeris = ephemeris_loader(pd_gnss_raw["time"].iloc[0]) # Get ephemeris from the internet
+                pd_ephemeris = ephemeris_loader(pd_gnss_raw["time"].iloc[0])  # Get ephemeris from the internet
             else:
                 pd_ephemeris = rinex_nav(ephem_filepath)
         # Find corresponding ephemeris for each SV from gnss_raw
@@ -459,4 +480,3 @@ def ephemeris_loader(timestamp: GnssTimestamp):
     """
     raise NotImplementedError("Getting navdata from the internet is not yet implemented. "
                               "Please use a downloaded rinex nav file.")
-
