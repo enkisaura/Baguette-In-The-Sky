@@ -38,30 +38,30 @@ class SVState(NamedTuple):
 
 class KeplerianParameters(NamedTuple):
     # Elliptical orbit shape
-    sqrta: np.ndarray  # Square root of semi-major axis
-    e: np.ndarray  # Eccentricity
+    sqrta: np.ndarray  # Square root of semi-major axis (sqrt(m))
+    e: np.ndarray  # Eccentricity ()
 
     # Orbit orientation
-    omega: np.ndarray  # Argument of perigee
-    omega0: np.ndarray  # Longitude of Ascending Node of Orbit Plane at Weekly Epoch
-    i0: np.ndarray  # Inclination angle at reference time
+    omega: np.ndarray  # Argument of perigee (semi-circles)
+    omega0: np.ndarray  # Longitude of Ascending Node of Orbit Plane at Weekly Epoch (semi-circles)
+    i0: np.ndarray  # Inclination angle at reference time (semi-circles)
 
     # Orbit corrections
-    # Secular corrections
-    deltan: np.ndarray  # Mean Motion difference from computed value at reference time
-    omegadot: np.ndarray  # Rate of right ascension difference
-    idot: np.ndarray  # Rate of inclination angle
+    # -Secular corrections
+    deltan: np.ndarray  # Mean Motion difference from computed value at reference time (semi-circles/s)
+    omegadot: np.ndarray  # Rate of right ascension difference (semi-circles/s)
+    idot: np.ndarray  # Rate of inclination angle  (semi-circles/s)
 
-    # Harmonic corrections
-    cis: np.ndarray  # Amplitude of the sine harmonic correction term to the angle of inclination
-    cic: np.ndarray  # Amplitude of the cosine harmonic correction term to the angle of inclination
-    crs: np.ndarray  # Amplitude of the sine correction term to the orbit radius
-    crc: np.ndarray  # Amplitude of the cosine correction term to the orbit radius
-    cus: np.ndarray  # Amplitude of the sine harmonic correction term to the argument of latitude
-    cuc: np.ndarray  # Amplitude of the cosine harmonic correction term to the argument of latitude
+    # -Harmonic corrections
+    cis: np.ndarray  # Amplitude of the sine harmonic correction term to the angle of inclination (radians)
+    cic: np.ndarray  # Amplitude of the cosine harmonic correction term to the angle of inclination (radians)
+    crs: np.ndarray  # Amplitude of the sine correction term to the orbit radius (meters)
+    crc: np.ndarray  # Amplitude of the cosine correction term to the orbit radius (meters)
+    cus: np.ndarray  # Amplitude of the sine harmonic correction term to the argument of latitude (radians)
+    cuc: np.ndarray  # Amplitude of the cosine harmonic correction term to the argument of latitude (radians)
 
     # Satellite position on orbit
-    m0: np.ndarray  # Mean anomaly at reference time
+    m0: np.ndarray  # Mean anomaly at reference time (semi-circles)
 
 
 def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tow: None | np.ndarray = None,
