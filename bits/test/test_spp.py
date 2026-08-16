@@ -15,7 +15,7 @@ from bits.src.parsers import ephemeris, gnss_raw, nmea
 from bits.src.spp import *
 from bits.src.convert.space_conversion import ecef_to_enu
 
-required_precision = 15  # m
+required_precision = 15 # m
 required_precision_speed = 0.2 # m/s
 az_el_required_precision = 1e-2  # rad
 gt = (45.7615208,-1.1411692,0)

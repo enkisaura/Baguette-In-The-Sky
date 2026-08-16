@@ -412,13 +412,6 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
         pd_glo.loc[:, cols] = np.column_stack(sv_state)
     else:
         pd_glo = pd.DataFrame()
-    """pd_glo = pd_gnss[pd_gnss["gnss_id"] == "glo"]
-    if not pd_glo.empty and check_dataframe(pd_gnss, glo_ephemeris_required_columns):
-        pd_glo.loc[:, cols] = pd_glo.apply(
-            lambda row: state_propagation_based_sv_model(row, row["emission_time"]), axis=1,
-            result_type="expand").to_numpy()
-    else:
-        pd_glo = pd.DataFrame()"""
 
     # Compute orbit-based sv state (Galileo, GPS, Beidou)
     pd_gps = pd_gnss[pd_gnss["gnss_id"].isin(["gal", "gps", "bei"])]

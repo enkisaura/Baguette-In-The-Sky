@@ -79,10 +79,13 @@ def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
                                                                                 pd_gnss["clock_drift_rate"]).fillna(0)
 
     # 2) Compute relativistic clock corrections
-    pd_gnss["relat_clock_corr_m"] = pd_gnss.apply(
+    # GLONASS already compensate for part of the relativistic effects by design
+    glo_mask = pd_gnss["gnss_id"] == "glo"
+    pd_gnss.loc[~glo_mask, "relat_clock_corr_m"] = pd_gnss.apply(
        lambda row: const.C * compute_relativistic_clock_correction(row["x_sv_m"], row["y_sv_m"], row["z_sv_m"],
                                                                    row["vx_sv_mps"], row["vy_sv_mps"], row["vz_sv_mps"])
         ,axis=1).fillna(0)
+    pd_gnss.loc[glo_mask, "relat_clock_corr_m"] = 0
 
     # 3) Compute group delay
     pd_gnss["tgd_clock_corr_m"] = const.C * pd_gnss["tgd"].fillna(0)
