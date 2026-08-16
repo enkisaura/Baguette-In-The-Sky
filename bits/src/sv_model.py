@@ -13,13 +13,17 @@ import numpy as np
 import warnings
 from typing import NamedTuple
 from bits.src.reference_frame_object import GnssTimestamp
-from bits.src.convert import space_conversion
+from bits.src import convert
 from bits.src import const
 from bits.src.parsers.ephemeris import rinex_nav
 from bits.src.utils import check_dataframe
 
 
 class SVState(NamedTuple):
+    """
+    State of a satellite vehicle.
+    Every array must be vectors of same size.
+    """
     # Position
     x: np.ndarray
     y: np.ndarray
@@ -37,6 +41,10 @@ class SVState(NamedTuple):
 
 
 class KeplerianParameters(NamedTuple):
+    """
+    Keplerian parameters of a satellite vehicle with additional orbit and harmonic corrections.
+    Every array must be vectors of same size.
+    """
     # Elliptical orbit shape
     sqrta: np.ndarray  # Square root of semi-major axis (sqrt(m))
     e: np.ndarray  # Eccentricity ()
@@ -52,7 +60,7 @@ class KeplerianParameters(NamedTuple):
     omegadot: np.ndarray  # Rate of right ascension difference (semi-circles/s)
     idot: np.ndarray  # Rate of inclination angle  (semi-circles/s)
 
-    # -Harmonic corrections
+    # Harmonic corrections
     cis: np.ndarray  # Amplitude of the sine harmonic correction term to the angle of inclination (radians)
     cic: np.ndarray  # Amplitude of the cosine harmonic correction term to the angle of inclination (radians)
     crs: np.ndarray  # Amplitude of the sine correction term to the orbit radius (meters)
@@ -62,6 +70,22 @@ class KeplerianParameters(NamedTuple):
 
     # Satellite position on orbit
     m0: np.ndarray  # Mean anomaly at reference time (semi-circles)
+
+
+def compute_tk(toe: np.ndarray, tow: np.ndarray) -> np.ndarray:
+    """
+    Computes the elapsed time since ephemeris.
+
+    :param toe: Ephemeris data reference time of week (secondes)
+    :param tow: Time of week at which the satellite's position should be computed (secondes)
+    :return: elapsed time since ephemeris (secondes)
+    """
+    tk = tow - toe
+    # Week crossover
+    tk = np.where(tk > 302400, tk - 604800, tk)
+    tk = np.where(tk < -302400, tk + 604800, tk)
+
+    return tk
 
 
 def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tow: None | np.ndarray = None,
@@ -77,18 +101,15 @@ def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tow
     :param tow: Time of week at which the satellite's position should be computed (secondes)
     :param tk: Elapsed time since ephemeris data reference (secondes)
     :param ek_iterations: Number of iterations to compute the eccentric anomaly
-    :return: SVState(x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef)
-    speed and acceleration in ECEF and eccentric anomaly
+    :return: SVState(x, y, z, vx, vy, vz, ax, ay, az) in ECEF (m)
     """
     # Elapsed time since ephemeris
     if tk is None:
         if tow is None:
             raise ValueError("Either tk or tow must be specified")
 
-        tk = tow - toe
-        # Week crossover
-        tk = np.where(tk > 302400, tk - 604800, tk)
-        tk = np.where(tk < -302400, tk + 604800, tk)
+        tk = compute_tk(toe, tow)
+
 
     a = orbit_param.sqrta ** 2  # Semi-major axis
     n0 = np.sqrt(const.NU / a ** 3)  # Computed mean motion (rad/sec)
@@ -180,161 +201,135 @@ def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tow
     return SVState(xk, yk, zk, xk_dot, yk_dot, zk_dot, xk_dotdot, yk_dotdot, zk_dotdot)
 
 
-def _glo_equations_of_motion(state: np.ndarray,
-                             ddx: float, ddy: float, ddz: float) -> np.ndarray:
+def state_derivatives(State:SVState) -> SVState:
     """
-    Function F(t, Y): derivatives of the state vector in ECI.
-
     dx/dt  = vx
     dy/dt  = vy
     dz/dt  = vz
-    dvx/dt = -μ̄·x̄ + (3/2)·C20·μ̄·x̄·ρ²·(1 − 5z̄²) + ddx
-    dvy/dt = -μ̄·ȳ + (3/2)·C20·μ̄·ȳ·ρ²·(1 − 5z̄²) + ddy
-    dvz/dt = -μ̄·z̄ + (3/2)·C20·μ̄·z̄·ρ²·(3 − 5z̄²) + ddz
+    dvx/dt = - mu_bar x_bar - (3/2) J2 mu_bar x_bar rho² (1-5 z_bar²) + ax
+    dvy/dt = - mu_bar y_bar - (3/2) J2 mu_bar y_bar rho² (1-5 z_bar²) + ay
+    dvz/dt = - mu_bar z_bar - (3/2) J2 mu_bar z_bar rho² (3-5 z_bar²) + az
 
-    Args:
-        state : [x, y, z, vx, vy, vz] ECI [m, m/s]
-        ddx,ddy,ddz : Lunisolar accelerations ECI [m/s²]
+    Where:
+    mu_bar = NU/r²
+    x_bar = x/r, y_bar = y/r, z_bar = z/r
+    rho = RE/r
+    r = sqrt(x² + y² + z²)
 
-    Returns:
-        dY/dt : [vx, vy, vz, ax, ay, az]
+    NU= 398 600.44*10^9 m3/s2 -Gravitational constant
+    RE= 6 378 136 m -Equatorial radius of Earth
+    J2 = 0.0010826262 -Oblate Earth Gravity Coefficient
+
+    Source: GLONASS Interface Control Document (ICD), Edition 5.1, Appendix 3
+
+    :param State: SVState to be derived in ECI (m)
+    :return: SVState(0, 0, 0, vx, vy, vz, ax, ay, az) in ECI (m)
     """
-    x, y, z, vx, vy, vz = state
+    r = np.sqrt(State.x ** 2 + State.y ** 2 + State.z ** 2)
+    mu_bar = const.NU / r ** 2
+    x_bar, y_bar, z_bar = State.x / r, State.y / r, State.z / r
+    rho = const.RE / r
 
-    r = np.sqrt(x ** 2 + y ** 2 + z ** 2)
-    if r < 1e3:
-        raise ValueError(f"Invalid state vector: {state}")
+    ax = - mu_bar * x_bar - (3 / 2) * const.J2 * mu_bar * x_bar * rho ** 2 * (1 - 5 * z_bar ** 2) + State.ax
+    ay = - mu_bar * y_bar - (3 / 2) * const.J2 * mu_bar * y_bar * rho ** 2 * (1 - 5 * z_bar ** 2) + State.ay
+    az = - mu_bar * z_bar - (3 / 2) * const.J2 * mu_bar * z_bar * rho ** 2 * (3 - 5 * z_bar ** 2) + State.az
 
-    # Normalised variables
-    mu_bar = const.NU / r ** 2  # μ/r²   [m/s²/m normalised]
-    x_bar = x / r  # x/r    [-]
-    y_bar = y / r
-    z_bar = z / r
-    rho = const.RE / r  # ae/r   [-]
-    rho2 = rho ** 2
-    z_bar2 = z_bar ** 2
-
-    # Oblate Earth acceleration Factor
-    j2_coeff = 1.5 * -const.J2 * mu_bar * rho2
-
-    # Accelerations [m/s²]
-    ax = -mu_bar * x_bar + j2_coeff * x_bar * (1.0 - 5.0 * z_bar2) + ddx
-    ay = -mu_bar * y_bar + j2_coeff * y_bar * (1.0 - 5.0 * z_bar2) + ddy
-    az = -mu_bar * z_bar + j2_coeff * z_bar * (3.0 - 5.0 * z_bar2) + ddz
-
-    return np.array([vx, vy, vz, ax, ay, az])
+    return SVState(np.zeros_like(State.x), np.zeros_like(State.y), np.zeros_like(State.z),
+                   State.vx, State.vy, State.vz,
+                   ax, ay, az)
 
 
-def _rk4_step(state: np.ndarray, ddx: float, ddy: float, ddz: float, h: float) -> np.ndarray:
+def runge_kutta(State: SVState, dt: np.ndarray) -> SVState:
     """
-    RK4 integration step (Runge-Kutta)
+    Propagate the State of a satellite over the integration step dt.
 
-    K1 = F(tn,      Yn)
-    K2 = F(tn+h/2,  Yn + h·K1/2)
-    K3 = F(tn+h/2,  Yn + h·K2/2)
-    K4 = F(tn+h,    Yn + h·K3)
-    Y_{n+1} = Yn + h/6·(K1 + 2K2 + 2K3 + K4)
-
-    Args:
-        state : state vector [m, m/s]
-        ddx,ddy,ddz : Lunisolar accelerations [m/s²]
-        h     : time step [s]
-
-    Returns:
-        state vector after step h
+    :param State: SVState to propagate in ECI (m)
+    :param dt: Integration step (seconds)
+    :return: propagated SVState in ECI (m)
     """
-    K1 = _glo_equations_of_motion(state, ddx, ddy, ddz)
-    K2 = _glo_equations_of_motion(state + h * K1 / 2, ddx, ddy, ddz)
-    K3 = _glo_equations_of_motion(state + h * K2 / 2, ddx, ddy, ddz)
-    K4 = _glo_equations_of_motion(state + h * K3, ddx, ddy, ddz)
+    def propagate_k(state_place:int, K:SVState, factor:float) -> np.ndarray:
+        """
+        Propagate one K on State.
+        :param state_place: 0, 1, 2 -> x, y, z; 3, 4, 5 -> vx, vy, vz; state_place + 3 -> derivative
+        :param K: K state vector to propagate
+        :param factor: multiplying factor
+        :return: propagated state vector
+        """
+        return State[state_place]  + factor * dt * K[state_place+3]
 
-    return state + (h / 6.0) * (K1 + 2 * K2 + 2 * K3 + K4)
+    K1 = state_derivatives(State)
+
+    State_k2 = SVState(propagate_k(0, K1, 0.5), propagate_k(1, K1, 0.5), propagate_k(2, K1, 0.5),
+                       propagate_k(3, K1, 0.5), propagate_k(4, K1, 0.5), propagate_k(5, K1, 0.5),
+                       State.ax, State.ay, State.az)
+    K2 = state_derivatives(State_k2)
+
+    State_k3 = SVState(propagate_k(0, K2, 0.5), propagate_k(1, K2, 0.5), propagate_k(2, K2, 0.5),
+                       propagate_k(3, K2, 0.5), propagate_k(4, K2, 0.5), propagate_k(5, K2, 0.5),
+                       State.ax, State.ay, State.az)
+    K3 = state_derivatives(State_k3)
+
+    State_k3 = SVState(propagate_k(0, K3, 1), propagate_k(1, K3, 1), propagate_k(2, K3, 1),
+                       propagate_k(3, K3, 1), propagate_k(4, K3, 1), propagate_k(5, K3, 1),
+                       State.ax, State.ay, State.az)
+    K4 = state_derivatives(State_k3)
+
+    def propagate(state_place:int) -> np.ndarray:
+        """
+        Propagate all K on State.
+        :param state_place: 0, 1, 2 -> x, y, z; 3, 4, 5 -> vx, vy, vz; state_place + 3 -> derivative
+        :return: propagated state vector
+        """
+        return (State[state_place]
+                + (dt / 6) * (K1[state_place + 3] + 2 * K2[state_place + 3]
+                              + 2 * K3[state_place + 3] + K4[state_place + 3]))
+
+    return SVState(propagate(0), propagate(1), propagate(2),
+                   propagate(3), propagate(4), propagate(5),
+                   State.ax, State.ay, State.az)
 
 
-def state_propagation_based_sv_model(pd_ephemeris_row: pd.Series, time: GnssTimestamp, step_s: float = 30) -> SVState:
+def state_propagation_based_sv_model(EphemState: SVState, toe_utc: np.ndarray, time: np.ndarray,
+                                     rk_step_s: float = 60) -> SVState:
     """
     Compute Glonass SV states.
     Computes one satellite position at a specific time using its ephemeris parameters.
     Based on https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation
-    :param pd_ephemeris_row: Satellite ephemeris. Use a pd.Series parsed with the BITS ephemeris parser.
-    :param time: Time at which the satellite's position should be computed
-    :return: SVState(x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef)
+    :param EphemState: Broadcast SVState in ECEF
+    :param toe_utc: Ephemeris data reference time in UTC (datetime64)
+    :param time: Time at which the satellite's position should be computed in UTC (datetime64)
+    :param tk: Elapsed time since ephemeris data reference (secondes)
+    :param rk_step_s: Runge-Kutta step size (seconds)
+    :return: SVState(x, y, z, vx, vy, vz, ax, ay, az) in ECEF (m)
     """
-    required_columns = ["time_of_ephemeris", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2", ]
-
-    if pd.isna(time) or pd_ephemeris_row[required_columns].isna().any():
-        return [np.nan] * 3
-
-    delta_t = (time - pd_ephemeris_row["time_of_ephemeris"]).total_seconds()
+    # Elapsed time since ephemeris
+    tk = (time - toe_utc) / np.timedelta64(1, "s")
 
     # 1. Coordinates transformation to an inertial reference frame:
-    xa, ya, za = space_conversion.ecef_to_eci_position(
-        pd_ephemeris_row["X"], pd_ephemeris_row["Y"], pd_ephemeris_row["Z"], pd_ephemeris_row["time_of_ephemeris"])
-    dxa, dya, dza = space_conversion.ecef_to_eci_velocity(
-        pd_ephemeris_row["X"], pd_ephemeris_row["Y"], pd_ephemeris_row["Z"],
-        pd_ephemeris_row["dX"], pd_ephemeris_row["dY"], pd_ephemeris_row["dZ"], pd_ephemeris_row["time_of_ephemeris"])
-    ddxa, ddya, ddza = space_conversion.ecef_to_eci_position(
-        pd_ephemeris_row["dX2"], pd_ephemeris_row["dY2"], pd_ephemeris_row["dZ2"],
-        pd_ephemeris_row["time_of_ephemeris"])
+    pv_state = convert.space.ecef_to_eci(toe_utc, *EphemState[:6])
+    # Luni-solar acceleration must not be corrected from coriolis/centrifugal force
+    luni_solar_acceleration = convert.space.ecef_to_eci(toe_utc, *EphemState[-3:])
+    EphemState = SVState(*pv_state, *luni_solar_acceleration)
 
     # 2. Numerical integration of differential equations that describe the motion of the satellites.
-    Y = np.array([xa, ya, za, dxa, dya, dza])  # Initial state
-    remaining = delta_t
-    sign = 1.0 if delta_t >= 0 else -1.0
+    State = EphemState # Initial state
+    remaining = tk
+    sign = np.where(tk >= 0, 1.0, -1.0)
 
     # Runge-Kutta integration algorithm
-    while abs(remaining) > 1e-9:
-        h = sign * min(step_s, abs(remaining))
-        Y = _rk4_step(Y, ddxa, ddya, ddza, h)
-        remaining -= h
-
-    x_eci, y_eci, z_eci, vx_eci, vy_eci, vz_eci = tuple(Y)
+    while np.abs(remaining).max() > 1e-9:
+        dt = sign * np.minimum(rk_step_s, np.abs(remaining))
+        dt = np.where(np.abs(remaining) > 1e-9, dt, 0.0)
+        State = runge_kutta(State, dt)
+        remaining -= dt
 
     # Compute acceleration
-    r = np.sqrt(x_eci ** 2 + y_eci ** 2 + z_eci ** 2)
-    mu_bar = const.NU / r ** 2
-    x_bar, y_bar, z_bar = x_eci / r, y_eci / r, z_eci / r
-    rho2 = (const.RE / r) ** 2
-    z_bar2 = z_bar ** 2
-    j2 = 1.5 * -const.J2 * mu_bar * rho2
-
-    ax_eci = -mu_bar * x_bar + j2 * x_bar * (1.0 - 5.0 * z_bar2) + dxa
-    ay_eci = -mu_bar * y_bar + j2 * y_bar * (1.0 - 5.0 * z_bar2) + dya
-    az_eci = -mu_bar * z_bar + j2 * z_bar * (3.0 - 5.0 * z_bar2) + dza
+    state_acceleration = state_derivatives(State)[-3:]
 
     # 3. Coordinates transformation back to ECEF reference system:
-    # Position
-    x_ecef, y_ecef, z_ecef = space_conversion.eci_to_ecef_position(x_eci, y_eci, z_eci, time)
+    State = SVState(*convert.space.eci_to_ecef(time, *State[:6], *state_acceleration))
 
-    # Speed
-    theta_ge = time.sidereal()
-    s = np.sin(theta_ge)
-    c = np.cos(theta_ge)
-
-    omega_cross_r = np.array([-const.OMEGA_E * y_eci, const.OMEGA_E * x_eci, 0.0])
-    v_ecef_eci = np.array([vx_eci, vy_eci, vz_eci]) - omega_cross_r
-
-    vx_ecef = v_ecef_eci[0] * c + v_ecef_eci[1] * s
-    vy_ecef = -v_ecef_eci[0] * s + v_ecef_eci[1] * c
-    vz_ecef = v_ecef_eci[2]
-
-    # Acceleration
-    a_eci = np.array([ax_eci, ay_eci, az_eci])
-
-    #   Coriolis  : 2·ω × v_ECEF
-    omega_cross_v = np.array([-const.OMEGA_E * vy_ecef, const.OMEGA_E * vx_ecef, 0.0])  # ω×v_ECEF (approx en ECI)
-    coriolis = 2.0 * omega_cross_v
-
-    #   Centrifuge: ω×(ω×r_ECI) = [−ω²·xi, −ω²·yi, 0]
-    centrifuge = np.array([-const.OMEGA_E ** 2 * x_eci, -const.OMEGA_E ** 2 * y_eci, 0.0])
-
-    a_ecef_eci = a_eci - coriolis - centrifuge
-
-    ax_ecef = a_ecef_eci[0] * c + a_ecef_eci[1] * s
-    ay_ecef = -a_ecef_eci[0] * s + a_ecef_eci[1] * c
-    az_ecef = a_ecef_eci[2]
-
-    return SVState(x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef)
+    return State
 
 
 def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
@@ -353,7 +348,7 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
     gps_ephemeris_required_columns = ["time", "time_of_ephemeris", "sqrta", "deltan", "m0", "e",
                                       "omega", "omega0", "omegadot", "i0", "idot",
                                       "cis", "cic", "crs", "crc", "cus", "cuc"]
-    glo_ephemeris_required_columns = ["time", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2", ]
+    glo_ephemeris_required_columns = ["time", "time_of_ephemeris", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2"]
 
     if not check_dataframe(pd_gnss_raw, raw_required_columns):
         warnings.warn("Missing columns in pd_gnss_raw, cannot add SV states.")
@@ -396,11 +391,34 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
     # Compute state propagation-based sv state (Glonass)
     pd_glo = pd_gnss[pd_gnss["gnss_id"] == "glo"]
     if not pd_glo.empty and check_dataframe(pd_gnss, glo_ephemeris_required_columns):
+        # Get initial SV state from ephemeris
+        col_to_field = {
+            "X": "x", "Y": "y", "Z": "z",
+            "dX": "vx", "dY": "vy", "dZ": "vz",
+            "dX2": "ax", "dY2": "ay", "dZ2": "az",
+        }
+        Ephem_state = SVState(**{field: pd_glo[col].to_numpy() for col, field in col_to_field.items()})
+
+        # Get time of ephemeris (toe) in array of datetime64 in UTC
+        toe_series = pd_glo['time_of_ephemeris'].apply(lambda g: g.pd_timestamp())
+        toe, _ = convert.time.process_time(toe_series)
+
+        # Get SV time in array of datetime64 in UTC
+        sv_time_series = pd_glo['emission_time'].apply(lambda g: g.pd_timestamp())
+        sv_time, _ = convert.time.process_time(sv_time_series)
+
+        # Compute SV state
+        sv_state = state_propagation_based_sv_model(Ephem_state, toe_utc=toe, time=sv_time)
+        pd_glo.loc[:, cols] = np.column_stack(sv_state)
+    else:
+        pd_glo = pd.DataFrame()
+    """pd_glo = pd_gnss[pd_gnss["gnss_id"] == "glo"]
+    if not pd_glo.empty and check_dataframe(pd_gnss, glo_ephemeris_required_columns):
         pd_glo.loc[:, cols] = pd_glo.apply(
             lambda row: state_propagation_based_sv_model(row, row["emission_time"]), axis=1,
             result_type="expand").to_numpy()
     else:
-        pd_glo = pd.DataFrame()
+        pd_glo = pd.DataFrame()"""
 
     # Compute orbit-based sv state (Galileo, GPS, Beidou)
     pd_gps = pd_gnss[pd_gnss["gnss_id"].isin(["gal", "gps", "bei"])]
@@ -411,9 +429,9 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
         # tk is passed instead of tow to handle ephemeris data that has more than one week difference with toe
         tk = pd_gps.apply(lambda row: (row["emission_time"] - row["time_of_ephemeris"]).total_seconds(), axis=1)
 
-        toe = np.array([t.bei_tow() if const == "bei"
+        toe = np.array([t.bei_tow() if constellation == "bei"
                         else t.tow()
-                        for const, t in zip(pd_gps["gnss_id"], pd_gps["time_of_ephemeris"])])
+                        for constellation, t in zip(pd_gps["gnss_id"], pd_gps["time_of_ephemeris"])])
 
         # Get Keplerian set of parameters alongside correction parameters
         orbit_param = KeplerianParameters(**{field: pd_gps[field].to_numpy() for field in KeplerianParameters._fields})
@@ -431,7 +449,7 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
     # rotation during the time interval that the signal takes to propagate from the satellite to the receiver:
     pd_gnss[["x_sv_m", "y_sv_m", "z_sv_m"]] = \
         pd_gnss.apply(
-            lambda row: pd.Series(space_conversion.rotate_ecef(row["x_sv_m"], row["y_sv_m"], row["z_sv_m"],
+            lambda row: pd.Series(convert.space_conversion.rotate_ecef(row["x_sv_m"], row["y_sv_m"], row["z_sv_m"],
                                                                row["delta_time"])), axis=1)
     return pd_gnss
 

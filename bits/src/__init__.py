@@ -1,6 +1,6 @@
 from . import *
 from .parsers import ephemeris, gnss_raw, nmea
-from .convert import space_conversion, time_conversion, other
+from .convert import space_conversion, time_conversion, other, space, time
 from . import const
 from . import corrections
 from . import naming
