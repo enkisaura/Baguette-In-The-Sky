@@ -88,8 +88,8 @@ def compute_tk(toe: np.ndarray, tow: np.ndarray) -> np.ndarray:
     return tk
 
 
-def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tow: None | np.ndarray = None,
-                          tk: None | np.ndarray = None, ek_iterations: int = 5) -> SVState:
+def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, time: np.ndarray, leap_sec: np.ndarray,
+                          ek_iterations: int = 5) -> SVState:
     """
     Compute GPS, Galileo or Beidou SV states.
 
@@ -97,19 +97,16 @@ def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tow
     (Table Broadcast Navigation User Equations)
 
     :param orbit_param: Keplerian set of parameters that describe the orbit
-    :param toe: Ephemeris data reference time of week (secondes)
-    :param tow: Time of week at which the satellite's position should be computed (secondes)
-    :param tk: Elapsed time since ephemeris data reference (secondes)
+    :param toe: Ephemeris data reference time in UTC (datetime64)
+    :param time: Time at which the satellite's position should be computed in UTC (datetime64)
+    :param leap_sec: number of leap seconds to add to UTC (seconds)
     :param ek_iterations: Number of iterations to compute the eccentric anomaly
     :return: SVState(x, y, z, vx, vy, vz, ax, ay, az) in ECEF (m)
     """
     # Elapsed time since ephemeris
-    if tk is None:
-        if tow is None:
-            raise ValueError("Either tk or tow must be specified")
+    tk = (time - toe) / np.timedelta64(1, "s")
 
-        tk = compute_tk(toe, tow)
-
+    toe_tow = convert.time.utc_to_tow(toe, leap_sec)
 
     a = orbit_param.sqrta ** 2  # Semi-major axis
     n0 = np.sqrt(const.NU / a ** 3)  # Computed mean motion (rad/sec)
@@ -148,7 +145,7 @@ def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tow
     yprimek = rk * np.sin(uk)
 
     # Corrected longitude of ascending node
-    omegak = orbit_param.omega0 + (orbit_param.omegadot - const.OMEGA_E) * tk - const.OMEGA_E * toe
+    omegak = orbit_param.omega0 + (orbit_param.omegadot - const.OMEGA_E) * tk - const.OMEGA_E * toe_tow
 
     # Earth-fixed geocentric satellite coordinate
     xk = xprimek * np.cos(omegak) - yprimek * np.cos(ik) * np.sin(omegak)
@@ -293,7 +290,6 @@ def state_propagation_based_sv_model(EphemState: SVState, toe_utc: np.ndarray, t
                                      rk_step_s: float = 60) -> SVState:
     """
     Compute Glonass SV states.
-    Computes one satellite position at a specific time using its ephemeris parameters.
     Based on https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation
     :param EphemState: Broadcast SVState in ECEF
     :param toe_utc: Ephemeris data reference time in UTC (datetime64)
@@ -417,20 +413,22 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
     pd_gps = pd_gnss[pd_gnss["gnss_id"].isin(["gal", "gps", "bei"])]
 
     if not pd_gps.empty and check_dataframe(pd_gnss, gps_ephemeris_required_columns):
-        # Convert time to time of week
-        # Conversion algorithms will be numpy compatible in a future version
-        # tk is passed instead of tow to handle ephemeris data that has more than one week difference with toe
-        tk = pd_gps.apply(lambda row: (row["emission_time"] - row["time_of_ephemeris"]).total_seconds(), axis=1)
+        # Get time of ephemeris (toe) in array of datetime64 in UTC
+        toe_series = pd_gps['time_of_ephemeris'].apply(lambda g: g.pd_timestamp())
+        toe, _ = convert.time.process_time(toe_series)
 
-        toe = np.array([t.bei_tow() if constellation == "bei"
-                        else t.tow()
-                        for constellation, t in zip(pd_gps["gnss_id"], pd_gps["time_of_ephemeris"])])
+        # Get SV time in array of datetime64 in UTC
+        sv_time_series = pd_gps['emission_time'].apply(lambda g: g.pd_timestamp())
+        sv_time, _ = convert.time.process_time(sv_time_series)
+
+        # Get leap seconds
+        leap_sec = convert.time.count_leap_seconds(sv_time, pd_gps["gnss_id"])
 
         # Get Keplerian set of parameters alongside correction parameters
         orbit_param = KeplerianParameters(**{field: pd_gps[field].to_numpy() for field in KeplerianParameters._fields})
 
         # Compute SV state
-        sv_state_np_tuple = kepler_based_sv_model(orbit_param, toe=toe, tk=tk)
+        sv_state_np_tuple = kepler_based_sv_model(orbit_param, toe, time=sv_time, leap_sec=leap_sec)
         pd_gps.loc[:, cols] = np.column_stack(sv_state_np_tuple)
     else:
         pd_gps = pd.DataFrame()
