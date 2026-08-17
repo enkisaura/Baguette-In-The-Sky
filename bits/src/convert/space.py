@@ -152,3 +152,20 @@ def eci_to_ecef(time: np.ndarray|pd.Series|np.datetime64|pd.Timestamp,
     ax_ecef, ay_ecef, az_ecef = _rotate_ecef_eci(ax, ay, az, sidereal_time, False)
 
     return x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef
+
+
+def rotate_ecef(x: float, y: float, z: float, delta_time: np.ndarray|np.timedelta64) \
+        -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Rotate ECEF coordinates over a specified time interval to account for Earth's rotation. This is used to correct for
+    Earth's rotation when converting from ECI to ECEF.
+    :param x_ecef: X ECEF (m)
+    :param y_ecef: Y ECEF (m)
+    :param z_ecef: Z ECEF (m)
+    :param delta_time: Earth rotation duration
+    :return: (x_ecef, y_ecef, z_ecef)
+    """
+    # Rotation of the earth during a period of delta_time
+    rotation_angle = const.OMEGA_E * (delta_time / np.timedelta64(1, "s"))
+
+    return _rotate_ecef_eci(x, y, z, rotation_angle, to_eci=False)
