@@ -342,6 +342,49 @@ def tow_to_utc(week: np.ndarray, tow: np.ndarray, gnss_id: str | np.ndarray) -> 
     return constellation_time_to_utc(const_time, gnss_id)
 
 
+# Ellapsed time
+def utc_to_secondes(time: np.ndarray, gnss_id: str | np.ndarray | None=None) -> np.ndarray:
+    """
+    Converts a UTC time to ellapsed time from reference epoch in seconds. Default to UNIX time.
+
+    :param time: time to convert (UTC, datetime)
+    :param gnss_id: str or np.ndarray of str ("gps", "gal", "bei", "glo")
+    :return: ellapsed time since reference epoch (timedelta)
+    """
+    time = process_time(time)
+    gnss_id = np.asarray(gnss_id)
+
+    if gnss_id is None:
+        reference_epoch = UNIX_EPOCH
+    else:
+        reference_epoch = get_reference_epoch(gnss_id)
+
+    reference_epoch = np.where(gnss_id == "glo", UNIX_EPOCH, reference_epoch)
+
+    return time - reference_epoch
+
+def secondes_to_utc(timedelta: np.ndarray, gnss_id: str | np.ndarray | None = None) -> np.ndarray:
+    """
+    Converts ellapsed time from reference epoch in seconds to UTC time. Default to UNIX time.
+
+    :param timedelta: ellapsed time since reference epoch (timedelta)
+    :param gnss_id: str or np.ndarray of str ("gps", "gal", "bei", "glo")
+    :return: time in utc (datetime)
+    """
+    timedelta = process_timedelta(timedelta)
+    gnss_id = np.asarray(gnss_id)
+
+    if gnss_id is None:
+        reference_epoch = UNIX_EPOCH
+    else:
+        reference_epoch = get_reference_epoch(gnss_id)
+
+    reference_epoch = np.where(gnss_id == "glo", UNIX_EPOCH, reference_epoch)
+
+    return reference_epoch + timedelta
+
+
+# Greenwich Mean Sidereal Time
 def utc_to_sidereal(time: np.ndarray|pd.Series|np.datetime64|pd.Timestamp) -> np.ndarray|float:
     """
     Converts a UTC timestamp to Greenwich Mean Sidereal Time (GMST) in radians.

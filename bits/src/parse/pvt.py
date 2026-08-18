@@ -4,8 +4,8 @@ Parse NMEA files
 
 import pandas as pd
 import numpy as np
+from datetime import datetime
 
-from bits.src.reference_frame_object import GnssTimestamp
 from bits.src.convert.space_conversion import wgs_to_ecef, enu_to_ecef
 
 def gga(filepath:str) -> pd.DataFrame:
@@ -83,22 +83,12 @@ def gga(filepath:str) -> pd.DataFrame:
                 x_ecef, y_ecef, z_ecef = wgs_to_ecef(lat_deg, lon_deg, altitude)
 
                 # Timestamp UTC
-                dt_str = f"{current_date} {time_str}"
-
-                dt = pd.to_datetime(
-                    dt_str,
-                    format="%d%m%y %H%M%S.%f",
-                    utc=True
-                )
-
-                unix_time = dt.timestamp()
-
-                gnss_timestamp = GnssTimestamp(unix_time, unit='s')
+                time_str = f"{current_date} {time_str}"
+                time = np.datetime64(datetime.strptime(time_str, "%d%m%y %H%M%S.%f"), "ns")
 
                 records.append({
-                    "time": gnss_timestamp,
-                    "corr_time": gnss_timestamp,
-                    "unix_time": unix_time,
+                    "time": time,
+                    "corr_time": time,
                     "lat": lat_deg,
                     "lon": lon_deg,
                     "alt": altitude,
@@ -164,10 +154,9 @@ def rmc(filepath: str) -> pd.DataFrame:
                 # Convert lla to ecef. Altitude is not available in RMC message; setting to 0
                 x_ecef, y_ecef, z_ecef = wgs_to_ecef(lat_deg, lon_deg, 0)
 
-                dt_str = f"{date_str} {time_str}"
-                dt = pd.to_datetime(dt_str, format="%d%m%y %H%M%S.%f", utc=True)
-                unix_time = dt.timestamp()
-                gnss_timestamp = GnssTimestamp(unix_time, unit='s')
+                # Timestamp UTC
+                time_str = f"{date_str} {time_str}"
+                time = np.datetime64(datetime.strptime(time_str, "%d%m%y %H%M%S.%f"), "ns")
 
                 cog_rad = -np.deg2rad(cog_deg) if cog_deg is not None else None
                 speed_mps = speed_knots/1.944
@@ -182,9 +171,8 @@ def rmc(filepath: str) -> pd.DataFrame:
                 v_matrix_ecef = enu_to_ecef(ancre_ecef=(x_ecef, y_ecef, z_ecef), enu_matrix=v_matrix_enu)
 
                 records.append({
-                    "time": gnss_timestamp,
-                    "corr_time": gnss_timestamp,
-                    "unix_time": unix_time,
+                    "time": time,
+                    "corr_time": time,
                     "lat": float(lat_deg),
                     "lon": float(lon_deg),
                     "alt": None,
