@@ -22,7 +22,7 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="georinex")
 
 
-def skydel_raw(filepath: str) -> pandas.DataFrame:
+def skydel(filepath: str) -> pandas.DataFrame:
     """
     Parse skydel raw data to pandas Dataframe.
     :param filepath: Path of the file
@@ -55,7 +55,7 @@ def skydel_raw(filepath: str) -> pandas.DataFrame:
     return pd_data
 
 
-def micdrop_raw(filepath: str) -> pandas.DataFrame:
+def micdrop(filepath: str) -> pandas.DataFrame:
     """
     Parse micdrop raw data to pandas Dataframe.
     :param filepath: Path of the file
@@ -92,7 +92,7 @@ def micdrop_raw(filepath: str) -> pandas.DataFrame:
 
     return pd_data
 
-def rinex_obs(filepath: str) -> pandas.DataFrame:
+def rinex(filepath: str) -> pandas.DataFrame:
     # Parsing rinex file to dataframe
     obs = georinex.load(filepath, verbose=True)
     obs_df = obs.to_dataframe()

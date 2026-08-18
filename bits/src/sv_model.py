@@ -12,10 +12,8 @@ import pandas as pd
 import numpy as np
 import warnings
 from typing import NamedTuple
-from bits.src.reference_frame_object import GnssTimestamp
-from bits.src import convert
-from bits.src import const
-from bits.src.parsers.ephemeris import rinex_nav
+
+from bits.src import const, convert, parse
 from bits.src.utils import check_dataframe
 
 
@@ -464,7 +462,7 @@ def retrieve_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = N
             if ephem_filepath is None:
                 pd_ephemeris = ephemeris_loader(pd_gnss_raw["time"].iloc[0])  # Get ephemeris from the internet
             else:
-                pd_ephemeris = rinex_nav(ephem_filepath)
+                pd_ephemeris = parse.ephemeris.rinex(ephem_filepath)
         # Find corresponding ephemeris for each SV from gnss_raw
         merged = pd_gnss_raw.merge(pd_ephemeris, on=['sv_id'], suffixes=('', '_navdata'))
         # Find difference between ephemeris and gnss_raw timestamp

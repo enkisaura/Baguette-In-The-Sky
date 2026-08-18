@@ -25,7 +25,6 @@ from bits.src.sv_model import get_sv_states
 from bits.src import const
 from bits.src.utils import check_dataframe
 from bits.src.reference_frame_object import GnssTimestamp
-from tqdm import tqdm
 
 class PositionEstimationError(Exception):
     """Exception raised for errors during position estimation."""

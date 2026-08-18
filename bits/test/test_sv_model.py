@@ -14,11 +14,9 @@ __version__ = "0.0.1"
 
 import os
 import pandas as pd
-from bits.src.parsers import ephemeris, gnss_raw
 from bits.src.sv_model import get_sv_states
 from bits.src.reference_frame_object import GnssTimestamp
-from bits.src import convert
-from bits.src import const
+from bits.src import const, convert, parse
 
 
 # Using skydel's sv state references, part 2. of sv_model.get_sv_states worsen the results. Without this part,
@@ -32,15 +30,15 @@ gps_ephem_filepath = os.path.join(test_data_directory_path, "rinex_nav.rnx")
 gal_ephem_filepath = os.path.join(test_data_directory_path, "SkydelRINEX_S_2023257120_600S_EN.rnx")
 skydel_raw_directory_path = os.path.join(test_data_directory_path, "skydel_raw")
 
-pd_gps_ephemeris = ephemeris.rinex_nav(gps_ephem_filepath)
-pd_gal_ephemeris = ephemeris.rinex_nav(gal_ephem_filepath)
+pd_gps_ephemeris = parse.ephemeris.rinex(gps_ephem_filepath)
+pd_gal_ephemeris = parse.ephemeris.rinex(gal_ephem_filepath)
 pd_ephemeris = pd.concat([pd_gps_ephemeris, pd_gal_ephemeris], ignore_index=True)
 
 pd_full_computed = pd.DataFrame()
 for filename in os.listdir(skydel_raw_directory_path):
     raw_filepath = os.path.join(skydel_raw_directory_path, filename)
 
-    pd_gnss_raw = gnss_raw.skydel_raw(raw_filepath)
+    pd_gnss_raw = parse.raw.skydel(raw_filepath)
 
     pd_gnss_raw_to_be_computed = pd_gnss_raw.copy().drop(columns=["x_sv_m", "y_sv_m", "z_sv_m"])
 

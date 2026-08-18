@@ -12,12 +12,11 @@ import georinex
 import warnings
 import pandas as pd
 
-from bits.src.reference_frame_object import GnssTimestamp
 from bits.src.naming import normalize_gnss_constellation
 from bits.src import convert
 
 
-def rinex_nav(filepath):
+def rinex(filepath):
     """
     Parse rinex nav into pandas dataframe using georinex.
     :param filepath: Path of the rinex nav file
