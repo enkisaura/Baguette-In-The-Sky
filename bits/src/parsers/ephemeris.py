@@ -60,44 +60,23 @@ def rinex_nav(filepath):
 
 
     # Convert time
-    pd_ephemeris["time"] = None
-    pd_ephemeris["time_of_ephemeris"] = pd.Series(pd.NaT, index=pd_ephemeris.index, dtype="datetime64[ns]")
-
-    # GPS time system has an 18s bias with respect to UTC
-    mask = pd_ephemeris["gnss_id"] == "gps"
-    pd_ephemeris.loc[mask, "time"] = (
-        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_gps_time(ts)))
-    #pd_ephemeris.loc[mask, "time_of_ephemeris"] = pd_ephemeris.loc[mask].apply(lambda row: get_gps_toe(row), axis=1)
-
-
-    # Galileo time system has an 18s bias with respect to UTC
-    mask = pd_ephemeris["gnss_id"] == "gal"
-    pd_ephemeris.loc[mask, "time"] = (
-        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_gps_time(ts)))
-    #pd_ephemeris.loc[mask, "time_of_ephemeris"] = pd_ephemeris.loc[mask].apply(lambda row: get_gps_toe(row), axis=1)
-
-    # Glonass is equivalent to UTC (but used to be in UTC+3)
-    mask = pd_ephemeris["gnss_id"] == "glo"
-    pd_ephemeris.loc[mask, "time"] = (
-        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp(ts)))
-    #pd_ephemeris.loc[mask, "time_of_ephemeris"] = (
-    #    pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp(ts)))
-
-    # Beidou time system has a 4s bias with respect to UTC
-    mask = pd_ephemeris["gnss_id"] == "bei"
-    pd_ephemeris.loc[mask, "time"] = (
-        pd_ephemeris.loc[mask, "time_rinex"].apply(lambda ts: GnssTimestamp.from_pd_timestamp_beidou_time(ts)))
-    #pd_ephemeris.loc[mask, "time_of_ephemeris"] = pd_ephemeris.loc[mask].apply(lambda row: get_bei_toe(row), axis=1)
-
+    pd_ephemeris["time"] = convert.time.constellation_time_to_utc(pd_ephemeris["time_rinex"], pd_ephemeris["gnss_id"])
     # Convert time_of_ephemeris
+    pd_ephemeris["time_of_ephemeris"] = pd.Series(pd.NaT, index=pd_ephemeris.index, dtype="datetime64[ns]")
     mask_unsteered = pd_ephemeris["gnss_id"] != "glo"
-    gnss_id = pd_ephemeris.loc[mask_unsteered, "gnss_id"]
-    time_ephemeris = convert.time.gnss_timestamp_to_datetime(pd_ephemeris["time"])
+    gnss_id_unsteered = pd_ephemeris.loc[mask_unsteered, "gnss_id"]
+
+    # Unsteered constellations
     pd_ephemeris.loc[mask_unsteered, "time_of_ephemeris"] = (
-        convert.time.tow_to_utc(week=convert.time.utc_to_week(time_ephemeris[mask_unsteered.to_numpy()], gnss_id),
-                                tow=pd_ephemeris.loc[mask_unsteered, "Toe"], gnss_id=gnss_id))
+        convert.time.tow_to_utc(week=convert.time.utc_to_week(pd_ephemeris.loc[mask_unsteered, "time"], gnss_id_unsteered),
+                                tow=pd_ephemeris.loc[mask_unsteered, "Toe"], gnss_id=gnss_id_unsteered))
+
+    # Constellation steered to UTC
     pd_ephemeris.loc[~mask_unsteered, "time_of_ephemeris"] = (
-        convert.time.process_time(time_ephemeris[~mask_unsteered.to_numpy()]))
+        convert.time.process_time(pd_ephemeris.loc[~mask_unsteered, "time"]))
+
+    # TODO provisoire
+    pd_ephemeris["time"] = convert.time.datetime_to_gnss_timestamp(pd_ephemeris["time"])
 
     # Get gps clock corrections
     if "TGD" not in pd_ephemeris.columns:
@@ -132,11 +111,3 @@ def rinex_nav(filepath):
 
     return pd_ephemeris
 
-
-def get_gps_toe(row):
-    gps_week = row["time"].gps_week()
-    return GnssTimestamp.from_gps_tow(gps_week, row["Toe"])
-
-def get_bei_toe(row):
-    bei_week = row["time"].bei_week()
-    return GnssTimestamp.from_bei_tow(bei_week, row["Toe"])

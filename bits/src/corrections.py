@@ -16,7 +16,7 @@ import math
 import warnings
 from typing import Literal
 from bits.src.sv_model import retrieve_ephemeris
-from bits.src import const
+from bits.src import const, convert
 from bits.src.utils import check_dataframe
 
 # Clock corrections
@@ -49,7 +49,7 @@ def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
     :return: raw data with corrected pseudoranges and corresponding clock corrections
     """
     raw_required_columns = ["time", "pr_m", "gnss_id", "sv_id"]
-    ephem_in_raw_required_columns_poly = ["time_diff", "clock_bias", "clock_drift", "clock_drift_rate"]
+    ephem_in_raw_required_columns_poly = ["clock_bias", "clock_drift", "clock_drift_rate"]
     ephem_in_raw_required_columns_relat_a = ["sqrta", "time_of_ephemeris", "deltan", "m0", "e"]
     ephem_in_raw_required_columns_relat_b = ["e", "sqrta", "eccentric_anomaly"]
 
@@ -72,7 +72,11 @@ def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
         pd_gnss["corr_pr_m"] -= pd_gnss["clock_corr_m"]
 
     # 1) Compute satellite clock correction:
-    tk = pd_gnss.apply(lambda row: (row["time"] - row["time_of_ephemeris"]).total_seconds(), axis=1)
+    # TODO provisoire
+    pd_gnss["time"] = convert.time.gnss_timestamp_to_datetime(pd_gnss["time"])
+    tk = (pd_gnss["time"] - pd_gnss["time_of_ephemeris"]) / np.timedelta64(1, "s")
+    # TODO provisoire
+    pd_gnss["time"] = convert.time.datetime_to_gnss_timestamp(pd_gnss["time"])
 
     pd_gnss["poly_clock_corr_m"] = const.C * compute_satellite_clock_correction(tk, pd_gnss["clock_bias"],
                                                                                 pd_gnss["clock_drift"],

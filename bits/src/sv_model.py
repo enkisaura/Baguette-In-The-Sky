@@ -106,7 +106,7 @@ def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tim
     # Elapsed time since ephemeris
     tk = (time - toe) / np.timedelta64(1, "s")
 
-    toe_tow = convert.time.utc_to_tow(toe, leap_sec)
+    toe_tow = convert.time.utc_to_tow(toe, leap_sec)  / np.timedelta64(1, "s")
 
     a = orbit_param.sqrta ** 2  # Semi-major axis
     n0 = np.sqrt(const.NU / a ** 3)  # Computed mean motion (rad/sec)

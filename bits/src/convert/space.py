@@ -1,3 +1,17 @@
+"""
+Space reference system conversions algorithms.
+
+Conversions are based on the Earth-Centred, Earth-Fixed (ECEF) reference system.
+
+"ECEF is an earth-fixed, i.e. rotating reference system. Its origin is the Earth's centre of mass, the fundamental plane
+contains this origin and it is perpendicular to the Earth's Conventional Terrestrial Pole (CTP). Its principal axis is
+pointing to the intersection of the mean Greenwich meridian and the equator. Since this coordinate system follows the
+diurnal rotation of earth, this is not an inertial reference system.
+    -> z: This axis is defined by the Conventional Terrestrial Pole (CTP)
+    -> x: This axis is defined as the intersection between the equatorial plane and the mean Greenwich meridian
+    -> y: It is orthogonal to the formers ones, so the system is right-handed", source: Navipedia
+"""
+
 import numpy as np
 import pandas as pd
 import warnings
@@ -5,19 +19,6 @@ import warnings
 from bits.src import convert
 from bits.src import const
 
-"""
-Space reference system conversions algorithms.
-
-Conversions are based on the Earth-Centred, Earth-Fixed (ECEF) reference system.
-
-"ECEF is an earth-fixed, i.e. rotating reference system. Its origin is the Earth's centre of mass, the fundamental plane 
-contains this origin and it is perpendicular to the Earth's Conventional Terrestrial Pole (CTP). Its principal axis is 
-pointing to the intersection of the mean Greenwich meridian and the equator. Since this coordinate system follows the 
-diurnal rotation of earth, this is not an inertial reference system. 
-    -> z: This axis is defined by the Conventional Terrestrial Pole (CTP)
-    -> x: This axis is defined as the intersection between the equatorial plane and the mean Greenwich meridian
-    -> y: It is orthogonal to the formers ones, so the system is right-handed", source: Navipedia
-"""
 
 def _rotate_ecef_eci(x, y, z, sidereal_time, to_eci:bool):
     if to_eci:
