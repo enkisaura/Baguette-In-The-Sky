@@ -72,11 +72,7 @@ def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
         pd_gnss["corr_pr_m"] -= pd_gnss["clock_corr_m"]
 
     # 1) Compute satellite clock correction:
-    # TODO provisoire
-    pd_gnss["time"] = convert.time.gnss_timestamp_to_datetime(pd_gnss["time"])
     tk = (pd_gnss["time"] - pd_gnss["time_of_ephemeris"]) / np.timedelta64(1, "s")
-    # TODO provisoire
-    pd_gnss["time"] = convert.time.datetime_to_gnss_timestamp(pd_gnss["time"])
 
     pd_gnss["poly_clock_corr_m"] = const.C * compute_satellite_clock_correction(tk, pd_gnss["clock_bias"],
                                                                                 pd_gnss["clock_drift"],
@@ -310,7 +306,7 @@ def get_atmospheric_corrections(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataF
             # 1. Compute ionospheric delays
             pd_gnss_raw_at_timestamp["iono_corr_m"] = pd_gnss_raw_at_timestamp.apply(
                 lambda row: compute_klobuchar(pd_ser_gnss_pvt_at_timestamp["lat"],
-                                              pd_ser_gnss_pvt_at_timestamp["lon"], timestamp.tow(),
+                                              pd_ser_gnss_pvt_at_timestamp["lon"], convert.time.utc_to_tow(timestamp, gnss_id="gps")/np.timedelta64(1, "s"),
                                               row["elevation_rad"], row["azimuth_rad"],
                                               row["ionospheric_param"][:4], row["ionospheric_param"][4:]), axis=1)
             pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["iono_corr_m"]] = \
@@ -320,7 +316,7 @@ def get_atmospheric_corrections(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataF
             pd_gnss_raw_at_timestamp["tropo_corr_m"] = pd_gnss_raw_at_timestamp.apply(
                 lambda row: compute_tropo_corrections(pd_ser_gnss_pvt_at_timestamp["lat"],
                                                       pd_ser_gnss_pvt_at_timestamp["alt"],
-                                                      timestamp.timestamp_pd.day_of_year, row["elevation_rad"]), axis=1)
+                                                      convert.time.day_of_year(timestamp), row["elevation_rad"]), axis=1)
             pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["tropo_corr_m"]] = \
                 pd_gnss_raw_at_timestamp["tropo_corr_m"]
 

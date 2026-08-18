@@ -12,7 +12,7 @@ import georinex
 import warnings
 import pandas as pd
 
-from bits.src.naming import normalize_gnss_constellation
+from bits.src.parse.utils import normalize_gnss_constellation
 from bits.src import convert
 
 
@@ -73,9 +73,6 @@ def rinex(filepath):
     # Constellation steered to UTC
     pd_ephemeris.loc[~mask_unsteered, "time_of_ephemeris"] = (
         convert.time.process_time(pd_ephemeris.loc[~mask_unsteered, "time"]))
-
-    # TODO provisoire
-    pd_ephemeris["time"] = convert.time.datetime_to_gnss_timestamp(pd_ephemeris["time"])
 
     # Get gps clock corrections
     if "TGD" not in pd_ephemeris.columns:

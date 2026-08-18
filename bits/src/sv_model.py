@@ -364,9 +364,6 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
         warnings.warn("Missing ephemeris data, cannot add SV states.")
         return pd_gnss
 
-    # TODO provisoire
-    pd_gnss[timestamp_column_name] = convert.time.gnss_timestamp_to_datetime(pd_gnss[timestamp_column_name])
-    #pd_gnss["time_of_ephemeris"] = convert.time.gnss_timestamp_to_datetime(pd_gnss["time_of_ephemeris"])
 
     # 1. Compute satellite coordinates at the emission time in the associated ECEF reference frame (i.e., tied to the
     # emission time).
@@ -433,10 +430,6 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
                                                                                               pd_gnss["az_sv_mpss"],
                                                                                               tof))
 
-    # TODO provisoire
-    pd_gnss[timestamp_column_name] = convert.time.datetime_to_gnss_timestamp(pd_gnss[timestamp_column_name])
-    #pd_gnss["time_of_ephemeris"] = convert.time.datetime_to_gnss_timestamp(pd_gnss["time_of_ephemeris"])
-
     return pd_gnss
 
 
@@ -466,12 +459,8 @@ def retrieve_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = N
         # Find corresponding ephemeris for each SV from gnss_raw
         merged = pd_gnss_raw.merge(pd_ephemeris, on=['sv_id'], suffixes=('', '_navdata'))
         # Find difference between ephemeris and gnss_raw timestamp
-        # TODO provisoire
-        merged["time"] = convert.time.gnss_timestamp_to_datetime(merged["time"])
         time_diff = np.abs((merged["time"] - merged["time_of_ephemeris"]))
         closest_matches = merged.loc[time_diff.groupby([merged["time"], merged["gnss_id"], merged["sv_id"]]).idxmin()]
-        # TODO provisoire
-        closest_matches["time"] = convert.time.datetime_to_gnss_timestamp(closest_matches["time"])
     else:
         closest_matches = pd_gnss_raw
 

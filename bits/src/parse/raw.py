@@ -15,7 +15,7 @@ import georinex
 import os
 
 from bits.src import convert
-from bits.src.naming import normalize_gnss_constellation
+from bits.src.parse.utils import normalize_gnss_constellation
 from bits.src.convert.other import doppler_to_pr_rate
 
 # Get read of FutureWarning from georinex
@@ -49,8 +49,6 @@ def skydel(filepath: str) -> pandas.DataFrame:
     pd_data["sv_id"] = pd_data["gnss_id"] + pd_data["prn_id"].astype(str) # Add sv_id
 
     pd_data["time"] = convert.time.tow_to_utc(pd_data["GPS Week Number"], pd_data["GPS TOW"], gnss_id="gps")
-    # TODO provisoire
-    pd_data["time"] = convert.time.datetime_to_gnss_timestamp(pd_data["time"])
 
     pd_data.rename(columns=translation_dict, inplace=True)
 
@@ -76,8 +74,6 @@ def micdrop(filepath: str) -> pandas.DataFrame:
 
     # Convert gps time milliseconds to UTC
     pd_data["time"] = convert.time.secondes_to_utc(pd_data["time"]/1000, gnss_id="gps")
-    # TODO provisoire
-    pd_data["time"] = convert.time.datetime_to_gnss_timestamp(pd_data["time"])
 
     # Convert Doppler shift to pr_rate -> Works only with L1 !!!!
     pd_data['pr_rate_mps'] = np.nan
@@ -109,8 +105,6 @@ def rinex(filepath: str) -> pandas.DataFrame:
 
     # Convert Timestamp to GnssTimestamp
     obs_df["time"] = convert.time.constellation_time_to_utc(obs_df["time"], gnss_id="gps") # TODO issue #15
-    # TODO provisoire
-    obs_df["time"] = convert.time.datetime_to_gnss_timestamp(obs_df["time"])
 
     # Get constellation id
     obs_df["gnss_id"] = obs_df["sv"].str[0]

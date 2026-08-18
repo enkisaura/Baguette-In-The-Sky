@@ -10,11 +10,8 @@ __version__ = "0.0.1"
 
 
 import pyproj
-from pandas import Timedelta
 import numpy as np
 import math
-from bits.src.reference_frame_object import GnssTimestamp
-from bits.src.const import OMEGA_E
 
 def wgs_to_ecef(lat: float, lon: float, alt: float) -> tuple[float, float, float]:
     """
@@ -40,100 +37,6 @@ def ecef_to_wgs(x_ecef: float, y_ecef: float, z_ecef: float) -> tuple[float, flo
     transformer = pyproj.Transformer.from_crs("epsg:4978", "epsg:4979", always_xy=True)
     lon, lat, alt = transformer.transform(x_ecef, y_ecef, z_ecef)
     return lat, lon, alt
-
-
-def rotate_ecef(x_ecef: float, y_ecef: float, z_ecef: float, delta_time: Timedelta) -> tuple[float, float, float]:
-    """
-    Rotate ECEF coordinates over a specified time interval to account for Earth's rotation. This is used to correct for
-    Earth's rotation when converting from ECI to ECEF.
-    :param x_ecef: X ECEF (m)
-    :param y_ecef: Y ECEF (m)
-    :param z_ecef: Z ECEF (m)
-    :param delta_time: Earth rotation duration
-    :return: (x_ecef, y_ecef, z_ecef)
-    """
-    # Rotation of the earth during a period of delta_time
-    rotation_angle = OMEGA_E * delta_time.total_seconds()
-
-    # R3 is a matrix defining a rotation of angle around the z-axis
-    R3 = np.array([
-        [math.cos(rotation_angle), math.sin(rotation_angle), 0],
-        [-math.sin(rotation_angle), math.cos(rotation_angle), 0],
-        [0, 0, 1]
-    ])
-
-    ecef = np.array([
-        [x_ecef],
-        [y_ecef],
-        [z_ecef]
-    ])
-
-    ecef_prime = R3.dot(ecef)
-
-    return ecef_prime[0][0], ecef_prime[1][0], ecef_prime[2][0],
-
-
-def ecef_to_eci_position(x_ecef: float, y_ecef: float, z_ecef: float, timestamp: GnssTimestamp) -> tuple[
-    float, float, float]:
-    """
-    Converts ECEF coordinates to ECI
-    source: https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation
-    :param x_ecef: X ECEF (m)
-    :param y_ecef: Y ECEF (m)
-    :param z_ecef: Z ECEF (m)
-    :param timestamp: Time of the measurements
-    :return: (x_eci, y_eci, z_eci)
-    """
-    theta_ge = timestamp.sidereal()  # Sidereal time in Greenwich at epoch timestamp (rad)
-
-    x_eci = x_ecef * math.cos(theta_ge) - y_ecef * math.sin(theta_ge)
-    y_eci = x_ecef * math.sin(theta_ge) + y_ecef * math.cos(theta_ge)
-    z_eci = z_ecef
-
-    return x_eci, y_eci, z_eci
-
-
-def ecef_to_eci_velocity(x_ecef: float, y_ecef: float, z_ecef: float,
-                         vx_ecef: float, vy_ecef: float, vz_ecef: float, timestamp: GnssTimestamp) -> tuple[
-    float, float, float]:
-    """
-    Converts velocity vectors from ECEF to ECI.
-    source: https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation
-    :param x_ecef: X ECEF (m)
-    :param y_ecef: Y ECEF (m)
-    :param z_ecef: Z ECEF (m)
-    :param vx_ecef: speed X ECEF (m/s)
-    :param vy_ecef: speed Y ECEF (m/s)
-    :param vz_ecef: speed Z ECEF (m/s)
-    :param timestamp: Time of the measurements
-    :return: (vx_eci, vy_eci, vz_eci)
-    """
-    vx_eci, vy_eci, vz_eci = ecef_to_eci_position(vx_ecef, vy_ecef, vz_ecef, timestamp)
-    x_eci, y_eci, _ = ecef_to_eci_position(x_ecef, y_ecef, z_ecef, timestamp)
-
-    vx_eci = vx_eci - OMEGA_E * y_eci
-    vy_eci = vy_eci + OMEGA_E * x_eci
-
-    return vx_eci, vy_eci, vz_eci
-
-def eci_to_ecef_position(x_eci: float, y_eci: float, z_eci: float, timestamp: GnssTimestamp) -> tuple[
-    float, float, float]:
-    """
-    Converts ECI coordinates to ECEF
-    source: https://gssc.esa.int/navipedia/index.php?title=GLONASS_Satellite_Coordinates_Computation
-    :param x_eci: X ECI (m)
-    :param y_eci: Y ECI (m)
-    :param z_eci: Z ECI (m)
-    :param timestamp: Time of the measurements
-    :return: (x_ecef, y_ecef, z_ecef)
-    """
-    theta_ge = timestamp.sidereal()  # Sidereal time in Greenwich at epoch timestamp (rad)
-
-    x_ecef = x_eci * math.cos(theta_ge) + y_eci * math.sin(theta_ge)
-    y_ecef = -x_eci * math.sin(theta_ge) + y_eci * math.cos(theta_ge)
-    z_ecef = z_eci
-
-    return x_ecef, y_ecef, z_ecef
 
 def pz_90_to_ecef(x_pz_90: float, y_pz_90: float, z_pz_90: float) -> tuple[float, float, float]:
     """

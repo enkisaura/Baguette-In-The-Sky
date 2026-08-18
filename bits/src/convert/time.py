@@ -8,8 +8,6 @@ timedelta64 formats.
 import pandas as pd
 import numpy as np
 
-from bits.src.reference_frame_object import GnssTimestamp
-
 UNIX_EPOCH = np.datetime64("1970-01-01T00:00:00", "ns") # Starting epoch of UNIX time (UTC)
 J2000_EPOCH = np.datetime64("2000-01-01T12:00:00", "ns")  # Julian Date 2451545.0 (UTC)
 GST_EPOCH = np.datetime64("1999-08-21T23:59:47", "ns") # Starting epoch of Galileo System Time (GST) (UTC)
@@ -26,40 +24,6 @@ LEAP_SECONDS = np.array([
     "1998-12-31T23:59:59", "2005-12-31T23:59:59", "2008-12-31T23:59:59",
     "2012-06-30T23:59:59", "2015-06-30T23:59:59", "2016-12-31T23:59:59",
 ], dtype="datetime64[ns]")
-
-
-transparent = False
-
-def gnss_timestamp_to_datetime(series: pd.Series) -> np.ndarray:
-    """
-    TODO script provisoire
-    """
-    if transparent:
-        return series
-
-    def safe_pd_timestamp(g):
-        if False:
-            return g.pd_timestamp()
-        try:
-            return g.pd_timestamp()
-        except Exception:
-            return None
-
-    sv_time_series = series.apply(safe_pd_timestamp)
-    sv_time = process_time(sv_time_series)
-
-    return sv_time
-
-def datetime_to_gnss_timestamp(array: np.ndarray) -> np.ndarray:
-    """
-    TODO script provisoire
-    """
-    if transparent:
-        return array
-
-    sv_time_array = np.array([GnssTimestamp.from_pd_timestamp(pd.Timestamp(t)) for t in array], dtype=object)
-
-    return sv_time_array
 
 def process_time(time: np.ndarray|pd.Series|np.datetime64|pd.Timestamp) -> np.ndarray:
     """
@@ -414,3 +378,17 @@ def utc_to_sidereal(time: np.ndarray|pd.Series|np.datetime64|pd.Timestamp) -> np
     GMST_rad = (GMST_sec / 86400) * (2 * np.pi)
 
     return GMST_rad % (2 * np.pi)
+
+# Time conversion utils
+def day_of_year(time: np.ndarray) -> np.ndarray:
+    """
+    Computes the day of year (1-indexed: Jan 1st = 1) from a np.datetime64 array.
+
+    :param time: np.ndarray of np.datetime64 (any resolution)
+    :return: np.ndarray of int, day of year
+    """
+    time = process_time(time)
+
+    days = time.astype("datetime64[D]")               # truncate to calendar day
+    year_start = days.astype("datetime64[Y]").astype("datetime64[D]")  # Jan 1st of that year
+    return (days - year_start).astype(np.int64) + 1

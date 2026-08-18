@@ -19,12 +19,11 @@ import pandas as pd
 import numpy as np
 import math
 import warnings
-from bits.src.convert.space_conversion import ecef_to_wgs, ecef_to_enu, enu_to_spheric, enu_to_ecef, rotate_ecef
+from bits.src.convert.space_conversion import ecef_to_wgs, ecef_to_enu, enu_to_spheric
 from bits.src.corrections import get_clock_corrections, get_atmospheric_corrections
 from bits.src.sv_model import get_sv_states
-from bits.src import const
+from bits.src import const, convert
 from bits.src.utils import check_dataframe
-from bits.src.reference_frame_object import GnssTimestamp
 
 class PositionEstimationError(Exception):
     """Exception raised for errors during position estimation."""
@@ -343,10 +342,7 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
         group_gnss_raw["corr_pr_m"] = group_gnss_raw["pr_m"]
     b_rx_m = np_geometry_matrix[:, 3:] @ np_rx_pos[3:]
     group_gnss_raw["corr_pr_m"] -= b_rx_m
-    # GnssTimestamp object are awful to use with pandas...
-    # In a future version, GnssTimestamp will be switched back to pd.Timestamp
-    timestamp_column = group_gnss_raw["time"].apply(lambda timestamp: timestamp.timestamp_pd)
-    group_gnss_raw["corr_time"] = (timestamp_column + pd.to_timedelta(b_rx_m / const.C, unit="s")).apply(lambda timestamp: GnssTimestamp.from_pd_timestamp(timestamp))
+    group_gnss_raw["corr_time"] = group_gnss_raw["time"] + convert.time.process_timedelta(b_rx_m / const.C)
 
     # Add Dilution Of Precision
     serie_gnss_approx_pvt["DOP"] = float(dop)

@@ -14,8 +14,8 @@ __version__ = "0.0.1"
 
 import os
 import pandas as pd
+import numpy as np
 from bits.src.sv_model import get_sv_states
-from bits.src.reference_frame_object import GnssTimestamp
 from bits.src import const, convert, parse
 
 
@@ -23,7 +23,7 @@ from bits.src import const, convert, parse
 # millimetric precision is expected
 required_precision = 20  # m
 
-start_time = GnssTimestamp(year=2023, month=9, day=14, hour=12, minute=0, second=0)
+start_time = np.datetime64("2023-09-14T12:00:00", "ns")
 
 test_data_directory_path = os.path.join(os.getcwd(), "bits", "test", "test_data")
 gps_ephem_filepath = os.path.join(test_data_directory_path, "rinex_nav.rnx")
