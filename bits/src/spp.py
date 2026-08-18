@@ -17,8 +17,8 @@ __version__ = "0.0.1"
 
 import pandas as pd
 import numpy as np
-import math
 import warnings
+
 from bits.src.convert.space_conversion import ecef_to_wgs, ecef_to_enu, enu_to_spheric
 from bits.src.corrections import get_clock_corrections, get_atmospheric_corrections
 from bits.src.sv_model import get_sv_states
@@ -512,8 +512,10 @@ def get_sv_el_az(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> pd.Dat
 
             # Update elevation and azimuth
             pd_gnss_raw_at_timestamp[["elevation_rad", "azimuth_rad"]] = geometry_matrix_polar[:, 1:3]
-            pd_gnss_raw_at_timestamp["elevation_rad"] = pd_gnss_raw_at_timestamp["elevation_rad"].apply(
-                lambda el: math.pi - el if el > math.pi/2 else el)
+            pd_gnss_raw_at_timestamp["elevation_rad"] = np.where(pd_gnss_raw_at_timestamp["elevation_rad"] > np.pi/2,
+                                                                 np.pi - pd_gnss_raw_at_timestamp["elevation_rad"],
+                                                                 pd_gnss_raw_at_timestamp["elevation_rad"])
+
             pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["elevation_rad", "azimuth_rad"]] = \
             pd_gnss_raw_at_timestamp[["elevation_rad", "azimuth_rad"]]
         else:
