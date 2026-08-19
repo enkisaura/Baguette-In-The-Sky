@@ -16,7 +16,7 @@ __version__ = "0.0.1"
 
 import os
 import pandas as pd
-from bits.src.parsers import ephemeris, gnss_raw
+from bits.src import parse
 
 test_data_directory_path = os.path.join(os.getcwd(), "bits", "test", "test_data")
 rinex2_filepath = os.path.join(test_data_directory_path, "rinex_nav.rnx")
@@ -26,25 +26,25 @@ micdrop_raw_filepath = os.path.join(test_data_directory_path, "gnss_raw", "rx1_1
 rinex_obs_filepath = os.path.join(test_data_directory_path, "XXXX00FRA_R_20261271839_00U_01S_MO.rnx")
 
 def test_rinex_nav_2():
-    pd_parsed_ephemeris = ephemeris.rinex_nav(rinex2_filepath)
+    pd_parsed_ephemeris = parse.ephemeris.rinex(rinex2_filepath)
     assert isinstance(pd_parsed_ephemeris, pd.DataFrame) and not pd_parsed_ephemeris.empty
 
 def test_rinex_nav_3():
-    pd_parsed_ephemeris = ephemeris.rinex_nav(rinex3_filepath)
+    pd_parsed_ephemeris = parse.ephemeris.rinex(rinex3_filepath)
     assert isinstance(pd_parsed_ephemeris, pd.DataFrame) and not pd_parsed_ephemeris.empty
 
 def test_skydel_raw():
     for filename in os.listdir(skydel_raw_directory_path):
         raw_filepath = os.path.join(skydel_raw_directory_path, filename)
-        pd_parsed_raw = gnss_raw.skydel_raw(raw_filepath)
+        pd_parsed_raw = parse.raw.skydel(raw_filepath)
         assert isinstance(pd_parsed_raw, pd.DataFrame) and not pd_parsed_raw.empty
 
 def test_micdrop_raw():
-    pd_parsed_raw = gnss_raw.micdrop_raw(micdrop_raw_filepath)
+    pd_parsed_raw = parse.raw.micdrop(micdrop_raw_filepath)
     assert isinstance(pd_parsed_raw, pd.DataFrame) and not pd_parsed_raw.empty
 
 def test_rinex_obs():
-    pd_parsed_raw = gnss_raw.rinex_obs(rinex_obs_filepath)
+    pd_parsed_raw = parse.raw.rinex(rinex_obs_filepath)
     assert isinstance(pd_parsed_raw, pd.DataFrame) and not pd_parsed_raw.empty
 
 

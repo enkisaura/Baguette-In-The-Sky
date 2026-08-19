@@ -39,50 +39,50 @@ reference_ts = GnssTimestamp(year=year, month=month, day=day, hour=hour, minute=
                              microsecond=microsecond, nanosecond=nanosecond, unit="ns", tz="UTC")
 
 
-def test_from_gps_tow():
+def old_test_from_gps_tow():
     tow_ts = GnssTimestamp.from_gps_tow(gps_week, tow)
     diff = reference_ts.timestamp_pd - tow_ts.timestamp_pd
     assert diff < required_precision_timedelta, f"Precision requirement is not met. Current precision is " \
                                                 f"{diff.value}ns, target precision is {required_precision}s"
 
 
-def known_issue_test_from_gps_time():
+def old_known_issue_test_from_gps_time():
     gps_time_ts = GnssTimestamp.from_gps_time(gps_time)
     diff = reference_ts.timestamp_pd - gps_time_ts.timestamp_pd
     assert diff < required_precision_timedelta, f"Precision requirement is not met. Current precision is " \
                                                 f"{diff.value}ns, target precision is {required_precision}s"
 
 
-def known_issue_test_to_gps_time():
+def old_known_issue_test_to_gps_time():
     gps_time_computed = reference_ts.gps_time()
     diff = gps_time - gps_time_computed
     assert diff < required_precision, f"Precision requirement is not met. Current precision is {diff}s, " \
                                       f"target precision is {required_precision}s"
 
 
-def test_to_tow():
+def old_test_to_tow():
     timestamp_tow = reference_ts.tow()
     diff = tow - timestamp_tow
     assert diff < required_precision, f"Precision requirement is not met. Current precision is {diff}s, " \
                                       f"target precision is {required_precision}s"
 
 
-def test_to_gps_week():
+def old_test_to_gps_week():
     timestamp_gps_week = reference_ts.gps_week()
     diff = gps_week - timestamp_gps_week
     assert diff < required_precision, f"Precision requirement is not met. Current precision is {diff}s, " \
                                       f"target precision is {required_precision}s"
 
-def test_to_sidereal():
+def old_test_to_sidereal():
     gmst = reference_ts.sidereal()
     diff = GMST_rad - gmst
     assert diff < required_precision, f"Precision requirement is not met. Current precision is {diff}s, " \
                                       f"target precision is {required_precision_sidereal}rad"
 
 if __name__ == "__main__":
-    test_from_gps_tow()
-    #test_from_gps_time()
-    #test_to_gps_time()
-    test_to_tow()
-    test_to_gps_week()
-    test_to_sidereal()
+    old_test_from_gps_tow()
+    #old_test_from_gps_time()
+    #old_test_to_gps_time()
+    old_test_to_tow()
+    old_test_to_gps_week()
+    old_test_to_sidereal()

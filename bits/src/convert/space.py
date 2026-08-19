@@ -1,3 +1,17 @@
+"""
+Space reference system conversions algorithms.
+
+Conversions are based on the Earth-Centred, Earth-Fixed (ECEF) reference system.
+
+"ECEF is an earth-fixed, i.e. rotating reference system. Its origin is the Earth's centre of mass, the fundamental plane
+contains this origin and it is perpendicular to the Earth's Conventional Terrestrial Pole (CTP). Its principal axis is
+pointing to the intersection of the mean Greenwich meridian and the equator. Since this coordinate system follows the
+diurnal rotation of earth, this is not an inertial reference system.
+    -> z: This axis is defined by the Conventional Terrestrial Pole (CTP)
+    -> x: This axis is defined as the intersection between the equatorial plane and the mean Greenwich meridian
+    -> y: It is orthogonal to the formers ones, so the system is right-handed", source: Navipedia
+"""
+
 import numpy as np
 import pandas as pd
 import warnings
@@ -5,19 +19,6 @@ import warnings
 from bits.src import convert
 from bits.src import const
 
-"""
-Space reference system conversions algorithms.
-
-Conversions are based on the Earth-Centred, Earth-Fixed (ECEF) reference system.
-
-"ECEF is an earth-fixed, i.e. rotating reference system. Its origin is the Earth's centre of mass, the fundamental plane 
-contains this origin and it is perpendicular to the Earth's Conventional Terrestrial Pole (CTP). Its principal axis is 
-pointing to the intersection of the mean Greenwich meridian and the equator. Since this coordinate system follows the 
-diurnal rotation of earth, this is not an inertial reference system. 
-    -> z: This axis is defined by the Conventional Terrestrial Pole (CTP)
-    -> x: This axis is defined as the intersection between the equatorial plane and the mean Greenwich meridian
-    -> y: It is orthogonal to the formers ones, so the system is right-handed", source: Navipedia
-"""
 
 def _rotate_ecef_eci(x, y, z, sidereal_time, to_eci:bool):
     if to_eci:
@@ -152,3 +153,20 @@ def eci_to_ecef(time: np.ndarray|pd.Series|np.datetime64|pd.Timestamp,
     ax_ecef, ay_ecef, az_ecef = _rotate_ecef_eci(ax, ay, az, sidereal_time, False)
 
     return x_ecef, y_ecef, z_ecef, vx_ecef, vy_ecef, vz_ecef, ax_ecef, ay_ecef, az_ecef
+
+
+def rotate_ecef(x: float, y: float, z: float, delta_time: np.ndarray|np.timedelta64) \
+        -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Rotate ECEF coordinates over a specified time interval to account for Earth's rotation. This is used to correct for
+    Earth's rotation when converting from ECI to ECEF.
+    :param x_ecef: X ECEF (m)
+    :param y_ecef: Y ECEF (m)
+    :param z_ecef: Z ECEF (m)
+    :param delta_time: Earth rotation duration
+    :return: (x_ecef, y_ecef, z_ecef)
+    """
+    # Rotation of the earth during a period of delta_time
+    rotation_angle = const.OMEGA_E * (delta_time / np.timedelta64(1, "s"))
+
+    return _rotate_ecef_eci(x, y, z, rotation_angle, to_eci=False)
