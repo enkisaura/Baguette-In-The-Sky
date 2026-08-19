@@ -17,7 +17,7 @@ import warnings
 from typing import Literal
 from bits.src.sv_model import retrieve_ephemeris
 from bits.src import const, convert
-from bits.src.utils import check_dataframe
+from bits.src.parse.utils import check_dataframe
 
 # Clock corrections
 def compute_satellite_clock_correction(dt, a0, a1, a2) -> float:
@@ -275,7 +275,8 @@ def get_atmospheric_corrections(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataF
     :param pd_gnss_pvt: GNSS pvt dataframe
     :return: GNSS pvt dataframe with corrected pseudoranges
     """
-    raw_required_columns = ["time", "pr_m", "gnss_id", "sv_id", "elevation_rad", "azimuth_rad", "ionospheric_param"]
+    raw_required_columns = ["time", "pr_m", "gnss_id", "sv_id", "elevation_rad", "azimuth_rad",
+                            "klo_a0", "klo_a1", "klo_a2", "klo_a3", "klo_b0", "klo_b1", "klo_b2", "klo_b3"]
     pvt_required_columns = ["time", "lat", "lon", "alt"]
 
     if not check_dataframe(pd_gnss_raw, raw_required_columns):
@@ -308,7 +309,8 @@ def get_atmospheric_corrections(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataF
                 lambda row: compute_klobuchar(pd_ser_gnss_pvt_at_timestamp["lat"],
                                               pd_ser_gnss_pvt_at_timestamp["lon"], convert.time.utc_to_tow(timestamp, gnss_id="gps")/np.timedelta64(1, "s"),
                                               row["elevation_rad"], row["azimuth_rad"],
-                                              row["ionospheric_param"][:4], row["ionospheric_param"][4:]), axis=1)
+                                              (row["klo_a0"], row["klo_a1"], row["klo_a2"], row["klo_a3"]),
+                                              (row["klo_b0"], row["klo_b1"], row["klo_b2"], row["klo_b3"])), axis=1)
             pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["iono_corr_m"]] = \
                 pd_gnss_raw_at_timestamp["iono_corr_m"]
 

@@ -14,7 +14,7 @@ import warnings
 from typing import NamedTuple
 
 from bits.src import const, convert, parse
-from bits.src.utils import check_dataframe
+from bits.src.parse.utils import check_dataframe
 
 
 class SVState(NamedTuple):

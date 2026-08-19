@@ -11,12 +11,13 @@ __version__ = "0.0.1"
 import georinex
 import warnings
 import pandas as pd
+from pathlib import Path
 
 from bits.src.parse.utils import normalize_gnss_constellation
 from bits.src import convert
 
 
-def rinex(filepath):
+def rinex(filepath: str|Path) -> pd.DataFrame:
     """
     Parse rinex nav into pandas dataframe using georinex.
     :param filepath: Path of the rinex nav file
@@ -100,7 +101,14 @@ def rinex(filepath):
     pd_ephemeris = pd_ephemeris.reset_index(drop=True)
 
     try:
-        pd_ephemeris["ionospheric_param"] = [ephemeris.ionospheric_corr_GPS] * len(pd_ephemeris)
+        pd_ephemeris["klo_a0"] = [ephemeris.ionospheric_corr_GPS[0]] * len(pd_ephemeris)
+        pd_ephemeris["klo_a1"] = [ephemeris.ionospheric_corr_GPS[1]] * len(pd_ephemeris)
+        pd_ephemeris["klo_a2"] = [ephemeris.ionospheric_corr_GPS[2]] * len(pd_ephemeris)
+        pd_ephemeris["klo_a3"] = [ephemeris.ionospheric_corr_GPS[3]] * len(pd_ephemeris)
+        pd_ephemeris["klo_b0"] = [ephemeris.ionospheric_corr_GPS[4]] * len(pd_ephemeris)
+        pd_ephemeris["klo_b1"] = [ephemeris.ionospheric_corr_GPS[5]] * len(pd_ephemeris)
+        pd_ephemeris["klo_b2"] = [ephemeris.ionospheric_corr_GPS[6]] * len(pd_ephemeris)
+        pd_ephemeris["klo_b3"] = [ephemeris.ionospheric_corr_GPS[7]] * len(pd_ephemeris)
     except:
         txt = f"No ionospheric parameters found in rinex file {filepath}"
         warnings.warn(txt)

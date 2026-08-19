@@ -6,4 +6,3 @@ from . import corrections
 from . import plotter
 from . import spp
 from . import sv_model
-from . import utils

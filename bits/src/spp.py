@@ -23,7 +23,7 @@ from bits.src.convert.space_conversion import ecef_to_wgs, ecef_to_enu, enu_to_s
 from bits.src.corrections import get_clock_corrections, get_atmospheric_corrections
 from bits.src.sv_model import get_sv_states
 from bits.src import const, convert
-from bits.src.utils import check_dataframe
+from bits.src.parse.utils import check_dataframe
 
 class PositionEstimationError(Exception):
     """Exception raised for errors during position estimation."""

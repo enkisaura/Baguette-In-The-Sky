@@ -5,10 +5,11 @@ Parse NMEA files
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 
 from bits.src.convert.space_conversion import wgs_to_ecef, enu_to_ecef
 
-def gga(filepath:str) -> pd.DataFrame:
+def gga(filepath:str|Path) -> pd.DataFrame:
     """
     Parse GGA from nmea text file. Requires RMC inside the NMEA file to get the date.
 
@@ -111,7 +112,7 @@ def gga(filepath:str) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-def rmc(filepath: str) -> pd.DataFrame:
+def rmc(filepath: str|Path) -> pd.DataFrame:
     """
     Parse RMC from nmea text file.
 

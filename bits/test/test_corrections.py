@@ -17,6 +17,7 @@ __version__ = "0.0.1"
 import os
 import pandas as pd
 from bits.src import corrections, parse
+from bits.src.parse.utils import fast_parse
 from bits.src.sv_model import get_sv_states
 
 test_data_directory_path = os.path.join(os.getcwd(), "bits", "test", "test_data")
@@ -24,7 +25,7 @@ ephem_filepath = os.path.join(test_data_directory_path, "gnss_raw", "rinex_v2.rn
 raw_filepath = os.path.join(test_data_directory_path, "gnss_raw", "rx1_1")
 
 def test_clock_corrections():
-    pd_raw = parse.raw.micdrop(raw_filepath)
+    pd_raw = fast_parse(raw_filepath, parse.raw.micdrop)
     pd_raw = get_sv_states(pd_raw, ephem_filepath=ephem_filepath)
 
     pd_gnss = corrections.get_clock_corrections(pd_raw)

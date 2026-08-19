@@ -71,7 +71,7 @@ def test_azimuth_elevation():
     pd_az_el_raw = pd.DataFrame()
     for filename in os.listdir(az_el_skydel_raw_directory_path):
         raw_filepath = os.path.join(az_el_skydel_raw_directory_path, filename)
-        pd_az_el_raw = pd.concat([pd_az_el_raw, parse.raw.skydel(raw_filepath).iloc[:2]], axis=0)
+        pd_az_el_raw = pd.concat([pd_az_el_raw, parse.raw.skydel_file(raw_filepath).iloc[:2]], axis=0)
     pd_az_el_raw = pd_az_el_raw[pd_az_el_raw["gnss_id"] == "gps"].reset_index()
     pd_az_el_pvt, _ = get_approx_position_estimate(pd_az_el_raw, convergence_tolerance=100)
     pd_az_el_raw = get_sv_el_az(pd_az_el_raw, pd_az_el_pvt)
