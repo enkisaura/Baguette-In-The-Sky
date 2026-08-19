@@ -49,6 +49,12 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
 
     pd_ephemeris = ephemeris.to_dataframe().dropna(how='all')
 
+    # Get rid of unhealthy satellites
+    if "SatH1" in pd_ephemeris.columns:
+        pd_ephemeris = pd_ephemeris[pd_ephemeris["SatH1"]!=1]
+    if "health" in pd_ephemeris.columns:
+        pd_ephemeris = pd_ephemeris[pd_ephemeris["health"]!=1]
+
     # Rename and rearrange
     indexes = pd_ephemeris.index
     pd_ephemeris["gnss_id"] = indexes.get_level_values(1)
@@ -67,9 +73,10 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
     gnss_id_unsteered = pd_ephemeris.loc[mask_unsteered, "gnss_id"]
 
     # Unsteered constellations
-    pd_ephemeris.loc[mask_unsteered, "time_of_ephemeris"] = (
-        convert.time.tow_to_utc(week=convert.time.utc_to_week(pd_ephemeris.loc[mask_unsteered, "time"], gnss_id_unsteered),
-                                tow=pd_ephemeris.loc[mask_unsteered, "Toe"], gnss_id=gnss_id_unsteered))
+    if "Toe" in pd_ephemeris.columns:
+        pd_ephemeris.loc[mask_unsteered, "time_of_ephemeris"] = (
+            convert.time.tow_to_utc(week=convert.time.utc_to_week(pd_ephemeris.loc[mask_unsteered, "time"], gnss_id_unsteered),
+                                    tow=pd_ephemeris.loc[mask_unsteered, "Toe"], gnss_id=gnss_id_unsteered))
 
     # Constellation steered to UTC
     pd_ephemeris.loc[~mask_unsteered, "time_of_ephemeris"] = (
@@ -83,7 +90,10 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
     mask = pd_ephemeris["gnss_id"] == "glo"
     if mask.any():
         pd_ephemeris.loc[mask, "SVclockDrift"] = pd_ephemeris.loc[mask, "SVrelFreqBias"]
-        pd_ephemeris["SVclockDriftRate"] = pd_ephemeris["SVclockDriftRate"].fillna(0)
+        if "SVclockDriftRate" in pd_ephemeris.columns:
+            pd_ephemeris["SVclockDriftRate"] = pd_ephemeris["SVclockDriftRate"].fillna(0)
+        else:
+            pd_ephemeris["SVclockDriftRate"] = 0
 
     # Get Galileo time group delay
     mask = pd_ephemeris["gnss_id"] == "gal"

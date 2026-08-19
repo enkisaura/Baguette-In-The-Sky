@@ -87,7 +87,7 @@ def compute_tk(toe: np.ndarray, tow: np.ndarray) -> np.ndarray:
 
 
 def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, time: np.ndarray, leap_sec: np.ndarray,
-                          ek_iterations: int = 5) -> SVState:
+                          ek_iterations: int = 5, omega_e: float|np.ndarray = const.OMEGA_E) -> SVState:
     """
     Compute GPS, Galileo or Beidou SV states.
 
@@ -143,7 +143,7 @@ def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tim
     yprimek = rk * np.sin(uk)
 
     # Corrected longitude of ascending node
-    omegak = orbit_param.omega0 + (orbit_param.omegadot - const.OMEGA_E) * tk - const.OMEGA_E * toe_tow
+    omegak = orbit_param.omega0 + (orbit_param.omegadot - omega_e) * tk - omega_e * toe_tow
 
     # Earth-fixed geocentric satellite coordinate
     xk = xprimek * np.cos(omegak) - yprimek * np.cos(ik) * np.sin(omegak)
@@ -166,7 +166,7 @@ def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tim
                                                                       - orbit_param.crc * np.sin(2 * phik)))
 
     # Longitude of Ascending Node Rate
-    omegak_dot = orbit_param.omegadot - const.OMEGA_E
+    omegak_dot = orbit_param.omegadot - omega_e
 
     # In-plane velocity
     xprimek_dot = rk_dot * np.cos(uk) - rk * uk_dot * np.sin(uk)
@@ -187,10 +187,10 @@ def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tim
     F = -(3 / 2) * const.J2 * (const.NU / (rk ** 2)) * (const.RE / rk) ** 2
 
     # Earth-Fixed acceleration (m/s2)
-    xk_dotdot = (-const.NU * (xk / (rk ** 3)) + F * ((1 - 5 * (zk / rk) ** 2) * (xk / rk)) + 2 * yk_dot * const.OMEGA_E
-                 + xk * const.OMEGA_E ** 2)
-    yk_dotdot = (-const.NU * (yk / (rk ** 3)) + F * ((1 - 5 * (zk / rk) ** 2) * (yk / rk)) - 2 * xk_dot * const.OMEGA_E
-                 + yk * const.OMEGA_E ** 2)
+    xk_dotdot = (-const.NU * (xk / (rk ** 3)) + F * ((1 - 5 * (zk / rk) ** 2) * (xk / rk)) + 2 * yk_dot * omega_e
+                 + xk * omega_e ** 2)
+    yk_dotdot = (-const.NU * (yk / (rk ** 3)) + F * ((1 - 5 * (zk / rk) ** 2) * (yk / rk)) - 2 * xk_dot * omega_e
+                 + yk * omega_e ** 2)
     zk_dotdot = -const.NU * (zk / (rk ** 3)) + F * ((3 - 5 * (zk / rk) ** 2) * (zk / rk))
 
     return SVState(xk, yk, zk, xk_dot, yk_dot, zk_dot, xk_dotdot, yk_dotdot, zk_dotdot)
@@ -408,9 +408,13 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
         # Get Keplerian set of parameters alongside correction parameters
         orbit_param = KeplerianParameters(**{field: pd_gps[field].to_numpy() for field in KeplerianParameters._fields})
 
+        # Get omega_e (earth rotation rate)
+        omega_e = const.get_omega_e(pd_gps["gnss_id"])
+
         # Compute SV state
         sv_state_np_tuple = kepler_based_sv_model(orbit_param, toe=pd_gps['time_of_ephemeris'],
-                                                  time=emmission_time[orbit_based_mask.to_numpy()], leap_sec=leap_sec)
+                                                  time=emmission_time[orbit_based_mask.to_numpy()], leap_sec=leap_sec,
+                                                  omega_e=omega_e)
         pd_gps.loc[:, cols] = np.column_stack(sv_state_np_tuple)
     else:
         pd_gps = pd.DataFrame()

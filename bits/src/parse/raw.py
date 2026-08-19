@@ -103,14 +103,24 @@ def skydel_file(filepath: str|Path) -> pd.DataFrame:
         "Tropo Correction (m)": "tropo_corr_m",
     }
 
+    skydel_const_dict = {
+        "B": "bei",
+        "E": "gal",
+        "G": "glo",
+        "L": "gps"
+    }
+
     pd_data = pd.read_csv(filepath)
 
     filename = os.path.basename(filepath)
-    sv_id = filename.split(" ")[-1].split(".")[0]
+    prn_id = filename.split(" ")[-1].split(".")[0]
+    pd_data["prn_id"] = int(prn_id)
     gnss_id = filename[0]
-    pd_data["prn_id"] = int(sv_id)
+    if gnss_id in skydel_const_dict.keys():
+        gnss_id = skydel_const_dict[gnss_id]
+    else:
+        gnss_id = "UKNOWN"
     pd_data["gnss_id"] = gnss_id
-    pd_data["gnss_id"] = pd_data["gnss_id"].apply(normalize_gnss_constellation)
     pd_data["sv_id"] = pd_data["gnss_id"] + pd_data["prn_id"].astype(str)
 
     pd_data["time"] = convert.time.tow_to_utc(pd_data["GPS Week Number"], pd_data["GPS TOW"], gnss_id="gps")

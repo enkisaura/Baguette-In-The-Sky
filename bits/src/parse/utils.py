@@ -87,7 +87,7 @@ def _cache_paths(filepath: Path):
     key = hashlib.sha256(
         f"{filepath.resolve()}-{stat.st_mtime_ns}-{stat.st_size}".encode()
     ).hexdigest()[:16]
-    base = filepath.parent / f"{filepath.stem}_{key}"
+    base = filepath.parent / f"{filepath.name.replace('.', '_')}_{key}"
     csv_path = base.with_suffix(".csv")
     schema_path = base.with_suffix(".schema.json")
     lock_path = base.with_suffix(".lock")
@@ -159,7 +159,7 @@ def _load_with_schema(csv_path: Path, schema_path: Path) -> pd.DataFrame:
     return pd.read_csv(csv_path, dtype=other_dtypes, parse_dates=date_cols)
 
 
-def fast_parse(filepath: str, parser: Callable, lock_timeout: float = 300) -> pd.DataFrame:
+def fast_parse(filepath: str|Path, parser: Callable, lock_timeout: float = 300) -> pd.DataFrame:
     """
     Parse data from a file, using a CSV + schema cache to avoid re-parsing on every call.
 

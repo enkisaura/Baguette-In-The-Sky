@@ -10,10 +10,13 @@ __copyright__ = "IKOS"
 __date__ = "2025-06-04"
 __version__ = "0.0.1"
 
+import numpy as np
+
 
 C = 299792458  # Speed of light (m/s)
 NU = 3.986005e14  # WGS 84 value of the earth's gravitational constant for GPS user (m3/s2)
-OMEGA_E = 7.292115e-5  # WGS 84 value of the earth's rotation rate (rad/s)
+OMEGA_E = 7.2921151467e-5  # WGS 84 value of the earth's rotation rate (rad/s)
+OMEGA_E_BEI = 7.2921150e-5  # BEIDOU value of the earth's rotation rate (rad/s)
 F = -4.442807633e-10 # float : Relativistic correction term (s/m^(1/2))
 G = 9.80665 # gravitational acceleration (m/s²)
 RE = 6378137 # WGS 84 Earth Equatorial Radius (m)
@@ -37,3 +40,16 @@ K1 = 77.604 # (K/mbar)
 K2 = 382000 # (K²/mbar)
 RD = 287.054 # (J/Kg/K)
 GM = 9.784 # (m/s²)
+
+
+def get_omega_e(gnss_id: str | np.ndarray) -> np.ndarray:
+    """
+    Beidou has a different value of the earth's rotation rate (rad/s) that can result of dozen of meters of errors on
+    sv state precision.
+
+    :param gnss_id: constellation id (str: "gps", "gal", "bei", "glo")
+    :return: earth's rotation rate (rad/s)
+    """
+    gnss_id = np.asarray(gnss_id)
+
+    return np.where(gnss_id == "bei", OMEGA_E_BEI, OMEGA_E)
