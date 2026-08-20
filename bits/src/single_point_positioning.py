@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Scripts to enable single point positioning (SPP)
+Performs single point positioning (SPP)
 
 Usage:
 ======

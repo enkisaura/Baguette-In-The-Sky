@@ -11,7 +11,7 @@ __date__ = "2025-06-06"
 __version__ = "0.0.1"
 
 from bits.src import parse
-from bits.src.spp import *
+from bits.src.single_point_positioning import *
 from bits.src.parse.utils import get_example_data_filepath, fast_parse
 
 required_pos_precision = 20 # m
@@ -57,7 +57,7 @@ def test_pos_bei():
 def test_pos_multi():
     estimate(raw_df=pos_raw_df, gt_df=pos_gt, gnss_id="bei")
 
-def estimate(raw_df:pd.DataFrame, gt_df:pd.DataFrame, gnss_id:str, verbose:bool = True):
+def estimate(raw_df:pd.DataFrame, gt_df:pd.DataFrame, gnss_id:str, verbose:bool = False):
     pvt_df, _ = get_position_estimate(raw_df, pd_ephemeris=ephem_df, verbose=verbose)
 
     comparison_df = pvt_df.merge(gt_df, on=["time"], suffixes=("", "_gt"))

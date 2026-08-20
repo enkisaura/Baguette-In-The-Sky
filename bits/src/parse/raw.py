@@ -98,7 +98,7 @@ def skydel_file(filepath: str|Path) -> pd.DataFrame:
         "ECEF Z (m)": 'z_sv_m',
         "Body Elevation (rad)": "elevation_rad",
         "Body Azimuth (rad)": "azimuth_rad",
-        "Clock Correction (s)": "poly_clock_corr_m",
+        "Clock Correction (s)": "clock_corr_m",
         "Iono Correction (m)": "iono_corr_m",
         "Tropo Correction (m)": "tropo_corr_m",
     }
@@ -139,7 +139,7 @@ def skydel_file(filepath: str|Path) -> pd.DataFrame:
     pd_data['z_sv_m'] = pd_data['z_sv_m'].astype("float64")
     pd_data['elevation_rad'] = pd_data["elevation_rad"].astype("float64")
     pd_data['azimuth_rad'] = pd_data["azimuth_rad"].astype("float64")
-    pd_data['poly_clock_corr_m'] = pd_data["poly_clock_corr_m"].astype("float64")
+    pd_data['clock_corr_m'] = pd_data["clock_corr_m"].astype("float64")
     pd_data['iono_corr_m'] = pd_data["iono_corr_m"].astype("float64")
     pd_data['tropo_corr_m'] = pd_data["tropo_corr_m"].astype("float64")
 
