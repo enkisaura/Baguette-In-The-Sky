@@ -84,7 +84,7 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
 
     # Get gps clock corrections
     if "TGD" not in pd_ephemeris.columns:
-        pd_ephemeris["TGD"] = None
+        pd_ephemeris["TGD"] = 0.0
 
     # Get glo clock corrections
     mask = pd_ephemeris["gnss_id"] == "glo"
@@ -109,6 +109,8 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
     pd_ephemeris = pd_ephemeris.rename(columns=lost_in_translation)
     pd_ephemeris = pd_ephemeris.dropna(axis=1, how='all')
     pd_ephemeris = pd_ephemeris.reset_index(drop=True)
+    if "tgd" not in pd_ephemeris.columns:
+        pd_ephemeris["tgd"] = pd_ephemeris["tgd"].astype("float64")
 
     try:
         pd_ephemeris["klo_a0"] = [ephemeris.ionospheric_corr_GPS[0]] * len(pd_ephemeris)

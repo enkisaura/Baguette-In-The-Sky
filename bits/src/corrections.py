@@ -88,7 +88,10 @@ def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
     pd_gnss.loc[glo_mask, "relat_clock_corr_m"] = 0
 
     # 3) Compute group delay
-    pd_gnss["tgd_clock_corr_m"] = const.C * pd_gnss["tgd"].fillna(0)
+    if "tgd" in pd_gnss.columns:
+        pd_gnss["tgd_clock_corr_m"] = const.C * pd_gnss["tgd"].fillna(0)
+    else:
+        pd_gnss["tgd_clock_corr_m"] = 0
 
     # 4) Fuse clock corrections
     pd_gnss["clock_corr_m"] = pd_gnss.apply(lambda row: row["poly_clock_corr_m"] + row["relat_clock_corr_m"]

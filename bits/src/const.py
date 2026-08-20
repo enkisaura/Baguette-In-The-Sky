@@ -52,4 +52,4 @@ def get_omega_e(gnss_id: str | np.ndarray) -> np.ndarray:
     """
     gnss_id = np.asarray(gnss_id)
 
-    return np.where(gnss_id == "bei", OMEGA_E_BEI, OMEGA_E)
+    return np.where((gnss_id == "bei"), OMEGA_E_BEI, OMEGA_E)

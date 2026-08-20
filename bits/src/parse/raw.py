@@ -96,8 +96,8 @@ def skydel_file(filepath: str|Path) -> pd.DataFrame:
         "ECEF X (m)": 'x_sv_m',
         "ECEF Y (m)": 'y_sv_m',
         "ECEF Z (m)": 'z_sv_m',
-        "Body Elevation(rad)": "elevation_rad",
-        "Body Azimuth(rad)": "azimuth_rad",
+        "Body Elevation (rad)": "elevation_rad",
+        "Body Azimuth (rad)": "azimuth_rad",
         "Clock Correction (s)": "poly_clock_corr_m",
         "Iono Correction (m)": "iono_corr_m",
         "Tropo Correction (m)": "tropo_corr_m",
@@ -125,9 +125,23 @@ def skydel_file(filepath: str|Path) -> pd.DataFrame:
 
     pd_data["time"] = convert.time.tow_to_utc(pd_data["GPS Week Number"], pd_data["GPS TOW"], gnss_id="gps")
 
-    pd_data["Clock Correction (s)"] = pd_data["Clock Correction (s)"] * const.C
+    pd_data["Clock Correction (s)"] = pd_data["Clock Correction (s)"].astype("float64") * const.C
 
     pd_data.rename(columns=translation_dict, inplace=True)
+
+    # Ensure types
+    pd_data['pr_m'] = pd_data['pr_m'].astype("float64")
+    pd_data['corr_pr_m'] = pd_data['corr_pr_m'].astype("float64")
+    pd_data['pr_rate_mps'] = pd_data['pr_rate_mps'].astype("float64")
+    pd_data['doppler_hz'] = pd_data["doppler_hz"].astype("float64")
+    pd_data['x_sv_m'] = pd_data['x_sv_m'].astype("float64")
+    pd_data['y_sv_m'] = pd_data['y_sv_m'].astype("float64")
+    pd_data['z_sv_m'] = pd_data['z_sv_m'].astype("float64")
+    pd_data['elevation_rad'] = pd_data["elevation_rad"].astype("float64")
+    pd_data['azimuth_rad'] = pd_data["azimuth_rad"].astype("float64")
+    pd_data['poly_clock_corr_m'] = pd_data["poly_clock_corr_m"].astype("float64")
+    pd_data['iono_corr_m'] = pd_data["iono_corr_m"].astype("float64")
+    pd_data['tropo_corr_m'] = pd_data["tropo_corr_m"].astype("float64")
 
     return pd_data
 
@@ -150,7 +164,7 @@ def micdrop(filepath: str|Path) -> pd.DataFrame:
     pd_data.rename(columns=translation_dict, inplace=True)
 
     # Convert gps time milliseconds to UTC
-    pd_data["time"] = convert.time.secondes_to_utc(pd_data["time"]/1000, gnss_id="gps")
+    pd_data["time"] = convert.time.seconds_to_utc(pd_data["time"]/1000, gnss_id="gps")
 
     # Convert Doppler shift to pr_rate -> Works only with L1 !!!!
     pd_data['pr_rate_mps'] = np.nan

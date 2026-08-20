@@ -17,10 +17,9 @@ from bits.src.sv_model import get_sv_states
 from bits.src import const, convert, parse
 from bits.src.parse.utils import get_example_data_filepath, fast_parse
 
-required_precision = 1  # m
+required_precision = 1 # m
 
-raw_df = fast_parse(get_example_data_filepath("raw", rover_type="sv")[0], parse.raw.skydel_folder)
-
+# Ephemeris
 ephem_filepath_list = get_example_data_filepath("ephemeris", rover_type="sv")
 ephem_list = []
 for filepath in ephem_filepath_list:
@@ -28,14 +27,15 @@ for filepath in ephem_filepath_list:
 ephem_df = pd.concat(ephem_list)
 
 # Ground truth
-gt_df = raw_df.copy()
+gt_df = fast_parse(get_example_data_filepath("raw", rover_type="sv")[0], parse.raw.skydel_folder)
 tof = (1e9 * gt_df["corr_pr_m"] / const.C).astype("timedelta64[ns]")
-
 # Compensate for earth's rotation to get SV state at emission
 gt_df[["x_sv_m", "y_sv_m", "z_sv_m"]] = pd.Series(convert.space.rotate_ecef(gt_df["x_sv_m"], gt_df["y_sv_m"],
                                                                             gt_df["z_sv_m"], tof))
 
-raw_df = raw_df.drop(columns=["x_sv_m", "y_sv_m", "z_sv_m"])
+# Raw
+# SV will be computed based on a dataframe with the same timestamps and satellites than the Ground truth
+raw_df = gt_df.copy().drop(columns=["x_sv_m", "y_sv_m", "z_sv_m"])
 
 def test_galileo():
     compute_sv_state("gal")
@@ -65,7 +65,8 @@ def compute_sv_state(gnss_id:str, verbose:bool = False):
         print(f"Precision report for sv model {gnss_id}")
         print(report)
 
-    assert x_diff.abs().max() < required_precision and y_diff.abs().max() < required_precision and z_diff.abs().max() < required_precision, \
+    assert (x_diff.abs().max() < required_precision and y_diff.abs().max() < required_precision
+            and z_diff.abs().max() < required_precision) and len(comparison_df) > 0, \
         f"Precision requirement is not met for {gnss_id}. \n{report}"
 
 
