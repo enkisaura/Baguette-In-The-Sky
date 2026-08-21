@@ -45,6 +45,7 @@ Raw measurements. Can also contain BITS ephemeris dataframe.
 | corr_pr_m          | Corrected pseudorange                                                      | metre         | float        |
 | pr_rate_mps        | Pseudorange rate                                                           | metre/second  | float        |
 | doppler_hz         | Doppler shift                                                              | 1/second      | float        |
+| frequency_hz       | Signal frequency                                                           | 1/second      | float        |
 | sv_id              | Satellite PRN number                                                       |               | int          |
 | gnss_id            | GNSS constellation ID (BITS normalized, cf normalize_gnss_constellation()) |               | str          |
 | x_sv_m             | X ECEF coordinate of the satellite                                         | metre         | float        |

@@ -127,8 +127,8 @@ def constellation_time(time: np.ndarray, gnss_id: str | np.ndarray, to_utc: bool
     Each constellation maintains its own time reference. GPS Time (GPST), Galileo System Time (GST), and Beidou Time
     (BDT) are continuous time scales synchronized with the Coordinated Universal Time (UTC). At the time of writing,
     GPST and GST are offset from UTC by 18 leap seconds, while BDT is offset from UTC by 4 leap seconds. GLONASS Time
-    (GLONASST) differs from this approach, as it is a time scale directly steered to UTC and therefore has no offset
-    with UTC.
+    (GLONASST) differs from this approach, as it is a time scale directly steered to UTC+3. Receivers usually provides
+    GLONASST in UTC+0.
 
     :param time: Constellation system time (datetime64) or UTC time (UTC, datetime64)
     :param gnss_id: constellation id (str: "gps", "gal", "bei", "glo")

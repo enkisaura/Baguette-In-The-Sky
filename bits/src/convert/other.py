@@ -15,18 +15,22 @@ __copyright__ = "IKOS"
 __date__ = "2025-06-05"
 __version__ = "0.0.1"
 
-from bits.src.const import C
+from bits.src import const
+import numpy as np
 
 
-def doppler_to_pr_rate(doppler, ft=1575420000):
+def doppler_to_pr_rate(doppler_shift:np.ndarray, frequency:np.ndarray) -> np.ndarray:
     """
-    Converts doppler to pseudorange rate. L1 frequency by default
-    :param doppler: doppler shift (Hz)
-    :param ft: signal frequency (Hz)
+    Converts doppler to pseudorange rate
+    :param doppler_shift: doppler shift (Hz)
+    :param frequency: signal frequency (Hz)
     :return: pseudorange rate (m/s)
     """
-    wavelength = C / ft
-    pr_rate = -wavelength * doppler
+    doppler_shift = np.asarray(doppler_shift)
+    frequency = np.asarray(frequency)
+
+    wavelength = const.C / frequency
+    pr_rate = -wavelength * doppler_shift
 
     return pr_rate
 
