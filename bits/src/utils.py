@@ -326,6 +326,10 @@ def get_data_from_ephemeris(pd_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame, co
     raw_sorted = pd_raw.sort_values("time").reset_index(drop=True)
     ephem_sorted = pd_ephemeris.sort_values("time").reset_index(drop=True)
 
+    # Delete already existing "_raw" columns
+    dup_cols = [c for c in raw_sorted.columns if c + "_raw" in raw_sorted.columns]
+    raw_sorted = raw_sorted.drop(columns=[c + "_raw" for c in dup_cols])
+
     merged = pd.merge_asof(
         raw_sorted,
         ephem_sorted[["time", "sv_id"] + cols],

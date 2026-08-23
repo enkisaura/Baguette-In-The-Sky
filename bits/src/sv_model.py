@@ -416,7 +416,7 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
         sv_state = state_propagation_based_sv_model(Ephem_state, toe=pd_glo['time_of_ephemeris'],
                                                     time=pd_glo["emission_time"])
         pd_glo.loc[:, cols] = np.column_stack(sv_state)
-        pd_glo.drop(kepler_ephemeris_required_columns[1:], inplace=True, axis="columns", errors="ignore")
+        pd_glo.drop(state_ephemeris_required_columns[1:], inplace=True, axis="columns", errors="ignore")
     else:
         pd_glo = pd.DataFrame()
 

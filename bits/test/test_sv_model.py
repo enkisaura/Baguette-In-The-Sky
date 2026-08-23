@@ -25,6 +25,8 @@ ephem_list = []
 for filepath in ephem_filepath_list:
     ephem_list.append(fast_parse(filepath, parse.ephemeris.rinex))
 ephem_df = pd.concat(ephem_list)
+# Get rid of unhealthy satellites
+ephem_df = ephem_df[ephem_df["healthy"] == True]
 
 # Ground truth
 gt_df = fast_parse(get_example_data_filepath("raw", rover_type="sv")[0], parse.raw.skydel_folder)
@@ -71,7 +73,7 @@ def compute_sv_state(gnss_id:str, verbose:bool = False):
 
 
 if __name__ == "__main__":
-    test_galileo()
-    test_gps()
-    test_glonass()
+    #test_galileo()
+    #test_gps()
+    #test_glonass()
     test_beidou()

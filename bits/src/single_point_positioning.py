@@ -19,7 +19,7 @@ import pandas as pd
 import numpy as np
 import warnings
 
-from bits.src.convert.space_conversion import ecef_to_wgs, ecef_to_enu, enu_to_spheric
+from bits.src.convert.space_conversion import ecef_to_wgs
 from bits.src.corrections import get_clock_corrections, get_atmospheric_corrections
 from bits.src.sv_model import get_sv_states
 from bits.src import const, convert, utils
@@ -293,7 +293,7 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
         serie_gnss_approx_pvt['lat'], serie_gnss_approx_pvt['lon'], serie_gnss_approx_pvt['alt'] \
             = ecef_to_wgs(float(np_rx_pos[0]), float(np_rx_pos[1]), float(np_rx_pos[2]))
     else:
-        serie_gnss_approx_pvt['lat'], serie_gnss_approx_pvt['lon'], serie_gnss_approx_pvt['alt'] = (None, None, None)
+        serie_gnss_approx_pvt['lat'], serie_gnss_approx_pvt['lon'], serie_gnss_approx_pvt['alt'] = (np.nan, np.nan, np.nan)
 
     # Add variance-covariance matrix
     serie_gnss_approx_pvt["cov_xx_rx_m"] = float(cov[0][0])
@@ -477,50 +477,58 @@ def gauss_newton(np_pr:np.ndarray, np_weight:np.ndarray, np_rx_pos:np.ndarray, n
     return np_rx_pos, np_geometry_matrix, cov, dop, residuals
 
 
-
 def get_sv_el_az(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> pd.DataFrame:
     """
-    Computes elevations and azimuth of satellite vehicles in pd_gnss_raw at estimated position from pd_gnss_pvt
+    Computes elevations and azimuth of satellite vehicles in pd_gnss_raw at estimated position from pd_gnss_pvt.
+    Fully vectorized implementation (no Python loop over timestamps or satellites).
+
     :param pd_gnss_raw: GNSS raw dataframe
     :param pd_gnss_pvt: GNSS pvt dataframe
-    :return: GNSS raw dataframe
+    :return: GNSS raw dataframe with elevation_rad and azimuth_rad columns
     """
-    timestamp_list = pd_gnss_raw["time"].unique().tolist()
-    pd_gnss_raw["elevation_rad"] = None
-    pd_gnss_raw["azimuth_rad"] = None
+    pd_gnss_raw = pd_gnss_raw.copy()
+    pd_gnss_pvt = pd_gnss_pvt.copy()
 
-    for timestamp in timestamp_list:# Loop over all timestamp
-        if timestamp in pd_gnss_pvt["time"].values:
-            # Get all raw measurements at timestamp
-            pd_gnss_raw_at_timestamp = pd_gnss_raw[pd_gnss_raw["time"] == timestamp].copy()
-            pd_gnss_pvt_at_timestamp = pd_gnss_pvt[pd_gnss_pvt["time"] == timestamp]
-            pd_ser_gnss_pvt_at_timestamp = pd_gnss_pvt_at_timestamp.iloc[0]
+    # Ensure "time" columns share the same dtype before merging
+    pd_gnss_raw["time"] = pd.to_datetime(pd_gnss_raw["time"])
+    pd_gnss_pvt["time"] = pd.to_datetime(pd_gnss_pvt["time"])
 
-            # Build RX & SV position
-            arr_rx_position = np.array([pd_ser_gnss_pvt_at_timestamp["x_rx_m"], pd_ser_gnss_pvt_at_timestamp["y_rx_m"],
-                                     pd_ser_gnss_pvt_at_timestamp["z_rx_m"]])
+    # Grouped warning for timestamps without matching PVT position
+    missing_timestamps = pd_gnss_raw.loc[~pd_gnss_raw["time"].isin(pd_gnss_pvt["time"]), "time"].unique()
+    for timestamp in missing_timestamps:
+        warnings.warn(f"While computing SV elevation & azimuth, no position found at timestamp {timestamp}")
 
-            arr_sv_position = pd_gnss_raw_at_timestamp[["x_sv_m", "y_sv_m", "z_sv_m"]].to_numpy()
+    # Attach RX position to each row of pd_gnss_raw (replaces per-timestamp filtering)
+    pvt_pos = pd_gnss_pvt.drop_duplicates(subset="time")[["time", "x_rx_m", "y_rx_m", "z_rx_m"]]
+    merged = pd_gnss_raw.merge(pvt_pos, on="time", how="left")
 
-            # Build sv ecef geometry matrix
-            geometry_matrix_ecef = compute_geometry_matrix(arr_sv_position, arr_rx_position)
+    valid_mask = merged["x_rx_m"].notna().to_numpy()
 
-            # Convert geometry matrix to azimuth and elevation
-            geometry_matrix_ecef = geometry_matrix_ecef[:, :-1]
-            geometry_matrix_enu = ecef_to_enu(arr_rx_position, geometry_matrix_ecef)
-            geometry_matrix_polar = enu_to_spheric(geometry_matrix_enu)
+    elevation = np.full(len(merged), np.nan)
+    azimuth = np.full(len(merged), np.nan)
 
-            # Update elevation and azimuth
-            pd_gnss_raw_at_timestamp[["elevation_rad", "azimuth_rad"]] = geometry_matrix_polar[:, 1:3]
-            pd_gnss_raw_at_timestamp["elevation_rad"] = np.where(pd_gnss_raw_at_timestamp["elevation_rad"] > np.pi/2,
-                                                                 np.pi - pd_gnss_raw_at_timestamp["elevation_rad"],
-                                                                 pd_gnss_raw_at_timestamp["elevation_rad"])
+    if valid_mask.any():
+        x_rx = merged["x_rx_m"].to_numpy()[valid_mask]
+        y_rx = merged["y_rx_m"].to_numpy()[valid_mask]
+        z_rx = merged["z_rx_m"].to_numpy()[valid_mask]
+        x_sv = merged["x_sv_m"].to_numpy()[valid_mask]
+        y_sv = merged["y_sv_m"].to_numpy()[valid_mask]
+        z_sv = merged["z_sv_m"].to_numpy()[valid_mask]
 
-            pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["elevation_rad", "azimuth_rad"]] = \
-            pd_gnss_raw_at_timestamp[["elevation_rad", "azimuth_rad"]]
-        else:
-            txt = f"While computing SV elevation & azimuth, no position found at timestamp {timestamp}"
-            warnings.warn(txt)
+        e, n, u = convert.space.ecef_to_enu(x_rx, y_rx, z_rx, x_sv, y_sv, z_sv)
+
+        horiz_dist = np.sqrt(e ** 2 + n ** 2)
+        el = np.arctan2(u, horiz_dist)
+        az = np.mod(np.arctan2(e, n), 2 * np.pi)
+
+        # Fold elevations > 90°
+        el = np.where(el > np.pi / 2, np.pi - el, el)
+
+        elevation[valid_mask] = el
+        azimuth[valid_mask] = az
+
+    pd_gnss_raw["elevation_rad"] = elevation
+    pd_gnss_raw["azimuth_rad"] = azimuth
 
     return pd_gnss_raw
 
@@ -539,6 +547,12 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
     """
     # Get ephemeris
     pd_ephemeris = utils.get_ephemeris(pd_gnss_raw, pd_ephemeris, ephem_filepath)
+
+    # Get rid of unhealthy satellites or satellites with no ephemeris
+    pd_gnss_raw = utils.get_data_from_ephemeris(pd_gnss_raw, pd_ephemeris, ["healthy"])
+    pd_gnss_raw = pd_gnss_raw[pd_gnss_raw["healthy"] == True]
+    pd_gnss_raw = pd_gnss_raw.dropna(subset=["healthy"]).reset_index(drop=True) # TODO BITS can't handle raw data that are not in ephemeris
+    pd_gnss_raw.drop(["healthy"], axis="columns", inplace=True)
 
     if verbose:
         print("Computing position estimate...")

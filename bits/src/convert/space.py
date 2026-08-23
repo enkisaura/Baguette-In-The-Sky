@@ -170,3 +170,57 @@ def rotate_ecef(x: float, y: float, z: float, delta_time: np.ndarray|np.timedelt
     rotation_angle = const.OMEGA_E * (delta_time / np.timedelta64(1, "s"))
 
     return _rotate_ecef_eci(x, y, z, rotation_angle, to_eci=False)
+
+def ecef_to_enu(x_ref: np.ndarray, y_ref: np.ndarray, z_ref: np.ndarray,
+                 x_target: np.ndarray, y_target: np.ndarray, z_target: np.ndarray
+                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Converts ECEF target position(s) into local ENU (East-North-Up) coordinates
+    relative to a reference position, using the reference to define the local tangent plane.
+    Fully vectorized: reference and target can be arrays of the same length (one
+    reference per target), or the reference can be scalars (single shared reference).
+
+    :param x_ref: X coordinate(s) of the reference position in ECEF (m)
+    :param y_ref: Y coordinate(s) of the reference position in ECEF (m)
+    :param z_ref: Z coordinate(s) of the reference position in ECEF (m)
+    :param x_target: X coordinate(s) of the target position in ECEF (m)
+    :param y_target: Y coordinate(s) of the target position in ECEF (m)
+    :param z_target: Z coordinate(s) of the target position in ECEF (m)
+    :return: tuple (e, n, u), East/North/Up coordinates (m) of target relative to reference
+    """
+    x_ref = np.asarray(x_ref, dtype=np.float64)
+    y_ref = np.asarray(y_ref, dtype=np.float64)
+    z_ref = np.asarray(z_ref, dtype=np.float64)
+    x_target = np.asarray(x_target, dtype=np.float64)
+    y_target = np.asarray(y_target, dtype=np.float64)
+    z_target = np.asarray(z_target, dtype=np.float64)
+
+    # WGS84 ellipsoid parameters
+    a = 6378137.0
+    f = 1 / 298.257223563
+    b = a * (1 - f)
+    e2 = 1 - (b ** 2) / (a ** 2)
+    ep2 = (a ** 2 - b ** 2) / (b ** 2)
+
+    # Convert reference point ECEF -> geodetic latitude/longitude (Bowring's method)
+    p = np.sqrt(x_ref ** 2 + y_ref ** 2)
+    theta = np.arctan2(z_ref * a, p * b)
+
+    lon = np.arctan2(y_ref, x_ref)
+    lat = np.arctan2(z_ref + ep2 * b * np.sin(theta) ** 3,
+                      p - e2 * a * np.cos(theta) ** 3)
+
+    # Displacement vector from reference to target, in ECEF
+    dx = x_target - x_ref
+    dy = y_target - y_ref
+    dz = z_target - z_ref
+
+    # Rotation from ECEF to ENU (row-wise, vectorized: one rotation per reference point)
+    sin_lat, cos_lat = np.sin(lat), np.cos(lat)
+    sin_lon, cos_lon = np.sin(lon), np.cos(lon)
+
+    e = -sin_lon * dx + cos_lon * dy
+    n = -sin_lat * cos_lon * dx - sin_lat * sin_lon * dy + cos_lat * dz
+    u = cos_lat * cos_lon * dx + cos_lat * sin_lon * dy + sin_lat * dz
+
+    return e, n, u

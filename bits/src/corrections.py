@@ -326,8 +326,8 @@ def compute_tropo_corrections(rx_lat: np.ndarray, rx_alt: np.ndarray, day_of_yea
     :param sv_elevation: Elevation of the satellite (rad)
     :return: Tropospheric delay (m)
     """
-    rx_alt = np.where(rx_alt < 0, 0, rx_alt)
-    rx_alt = np.where(rx_alt > 1000, 1000, rx_alt)
+    rx_alt = np.where(rx_alt < 0, 0.0, rx_alt)
+    rx_alt = np.where(rx_alt > 1000, 1000.0, rx_alt)
 
     # 1. Compute obliquity factor, valid for satellite elevation angles over 5 degrees
     M = 1.001/np.sqrt(0.002001 + np.sin(sv_elevation)**2)

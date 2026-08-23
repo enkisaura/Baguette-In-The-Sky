@@ -11,6 +11,7 @@ __version__ = "0.0.1"
 import georinex
 import warnings
 import pandas as pd
+import numpy as np
 from pathlib import Path
 
 from bits.src import convert, utils
@@ -54,11 +55,12 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
 
     pd_ephemeris = ephemeris.to_dataframe().dropna(how='all')
 
-    # Get rid of unhealthy satellites
+    # Get SV health
+    pd_ephemeris["healthy"] = True
     if "SatH1" in pd_ephemeris.columns:
-        pd_ephemeris = pd_ephemeris[pd_ephemeris["SatH1"]!=1]
+        pd_ephemeris["healthy"] = np.where(pd_ephemeris["SatH1"]==1, False, pd_ephemeris["healthy"])
     if "health" in pd_ephemeris.columns:
-        pd_ephemeris = pd_ephemeris[pd_ephemeris["health"]!=1]
+        pd_ephemeris["healthy"] = np.where(pd_ephemeris["health"]==1, False, pd_ephemeris["healthy"])
 
     # Rename and rearrange
     indexes = pd_ephemeris.index
@@ -96,9 +98,9 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
     if mask.any():
         pd_ephemeris.loc[mask, "SVclockDrift"] = pd_ephemeris.loc[mask, "SVrelFreqBias"]
         if "SVclockDriftRate" in pd_ephemeris.columns:
-            pd_ephemeris["SVclockDriftRate"] = pd_ephemeris["SVclockDriftRate"].fillna(0)
+            pd_ephemeris["SVclockDriftRate"] = pd_ephemeris["SVclockDriftRate"].fillna(0.0)
         else:
-            pd_ephemeris["SVclockDriftRate"] = 0
+            pd_ephemeris["SVclockDriftRate"] = 0.0
 
     # Get Galileo time group delay
     mask = pd_ephemeris["gnss_id"] == "gal"
