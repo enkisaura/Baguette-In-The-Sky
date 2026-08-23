@@ -22,8 +22,8 @@ import warnings
 from bits.src.convert.space_conversion import ecef_to_wgs, ecef_to_enu, enu_to_spheric
 from bits.src.corrections import get_clock_corrections, get_atmospheric_corrections
 from bits.src.sv_model import get_sv_states
-from bits.src import const, convert
-from bits.src.parse.utils import check_dataframe
+from bits.src import const, convert, utils
+from bits.src.utils import check_dataframe
 
 class PositionEstimationError(Exception):
     """Exception raised for errors during position estimation."""
@@ -537,6 +537,9 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
     :param approx_pvt: Position (ECEF meters) at initialization (default -> centre of earth)
     :return: GNSS pvt dataframe, corrected GNSS raw dataframe
     """
+    # Get ephemeris
+    pd_ephemeris = utils.get_ephemeris(pd_gnss_raw, pd_ephemeris, ephem_filepath)
+
     if verbose:
         print("Computing position estimate...")
 
@@ -545,51 +548,46 @@ def get_position_estimate(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
         warnings.warn("Missing columns in pd_gnss_raw, cannot compute position.")
         return pd_gnss_raw
 
+    # Get satellite vehicle positions
     if verbose:
         print("1/9: Finding satellites...")
-
-    # Get satellite vehicle positions
-    pd_gnss_raw = get_sv_states(pd_gnss_raw, pd_ephemeris, ephem_filepath=ephem_filepath)
-
-    if verbose:
-        print("2/9: Correcting satellite clock...")
+    pd_gnss_raw = get_sv_states(pd_gnss_raw, pd_ephemeris)
 
     # Correct satellite clock errors
-    pd_gnss_raw = get_clock_corrections(pd_gnss_raw)
+    if verbose:
+        print("2/9: Correcting satellite clock...")
+    pd_gnss_raw = get_clock_corrections(pd_gnss_raw, pd_ephemeris)
 
+    # Get a first position estimate
     if verbose:
         print("3/9: Computing rough position estimate...")
 
-    # Get a first position estimate
     pd_gnss_pvt, pd_gnss_raw = get_approx_position_estimate(pd_gnss_raw, approx_pvt=approx_pvt, convergence_tolerance=10000)
 
-    if verbose:
-        print("4/9: Correcting receiver clock...")
-
     # Recompute SV states
     if verbose:
-        print("5/9: Finding satellites, again...")
-    pd_gnss_raw = get_sv_states(pd_gnss_raw, pd_ephemeris, ephem_filepath=ephem_filepath)
+        print("4/9: Finding satellites, again...")
+    pd_gnss_raw = get_sv_states(pd_gnss_raw, pd_ephemeris)
 
-    if verbose:
-        print("6/9: Correcting atmospheric errors...")
     # Correct atmospheric error
-    pd_gnss_raw = get_atmospheric_corrections(pd_gnss_raw, pd_gnss_pvt)
-
     if verbose:
-        print("7/9: Computing a better position estimate...")
+        print("5/9: Correcting atmospheric errors...")
+    pd_gnss_raw = get_atmospheric_corrections(pd_gnss_raw, pd_ephemeris, pd_gnss_pvt)
+
     # Compute a corrected position estimate
+    if verbose:
+        print("6/9: Computing a better position estimate...")
     pd_gnss_pvt, pd_gnss_raw = get_approx_position_estimate(pd_gnss_raw, pd_gnss_approx_pvt=pd_gnss_pvt, convergence_tolerance=100)
 
-    if verbose:
-        print("8/9: Correcting receiver clock and finding satellites, again...")
     # Recompute SV states
-    pd_gnss_raw = get_sv_states(pd_gnss_raw, pd_ephemeris, ephem_filepath=ephem_filepath)
-
     if verbose:
-        print("9/9: Computing final position estimate...")
+        print("7/9: Correcting receiver clock and finding satellites, again...")
+    pd_gnss_raw = get_clock_corrections(pd_gnss_raw, pd_ephemeris)
+    pd_gnss_raw = get_sv_states(pd_gnss_raw, pd_ephemeris)
 
-    # Compute a final position estimate
+    # Compute the final position estimate
+    if verbose:
+        print("8/9: Computing final position estimate...")
     pd_gnss_pvt, pd_gnss_raw = get_approx_position_estimate(pd_gnss_raw, pd_gnss_approx_pvt=pd_gnss_pvt)
 
     return pd_gnss_pvt, pd_gnss_raw

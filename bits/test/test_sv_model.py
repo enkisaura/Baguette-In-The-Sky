@@ -15,7 +15,7 @@ __version__ = "0.0.1"
 import pandas as pd
 from bits.src.sv_model import get_sv_states
 from bits.src import const, convert, parse
-from bits.src.parse.utils import get_example_data_filepath, fast_parse
+from bits.src.utils import get_example_data_filepath, fast_parse
 
 required_precision = 1 # m
 

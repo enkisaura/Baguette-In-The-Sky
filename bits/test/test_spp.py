@@ -12,7 +12,7 @@ __version__ = "0.0.1"
 
 from bits.src import parse
 from bits.src.single_point_positioning import *
-from bits.src.parse.utils import get_example_data_filepath, fast_parse
+from bits.src.utils import get_example_data_filepath, fast_parse
 
 required_pos_precision = 20 # m
 required_speed_precision = 1 # mps

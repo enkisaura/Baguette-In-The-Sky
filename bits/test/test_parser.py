@@ -16,7 +16,7 @@ __version__ = "0.0.1"
 
 import pandas as pd
 from bits.src import parse
-from bits.src.parse.utils import get_example_data_filepath, fast_parse
+from bits.src.utils import get_example_data_filepath
 
 
 def test_ephem_rinex_mixed():
@@ -48,9 +48,9 @@ def test_pvt_rmc():
 
 
 if __name__ == "__main__":
-    #test_ephem_rinex_mixed()
-    #test_ephem_rinex_independant_const()
-    #test_raw_rinex()
+    test_ephem_rinex_mixed()
+    test_ephem_rinex_independant_const()
+    test_raw_rinex()
     test_raw_skydel()
     test_pvt_gga()
     test_pvt_rmc()

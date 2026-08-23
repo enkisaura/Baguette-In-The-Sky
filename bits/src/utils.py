@@ -9,6 +9,7 @@ __date__ = "18/02/2025"
 __version__ = "0.0.1"
 
 import pandas as pd
+import numpy as np
 import json
 import time
 import hashlib
@@ -16,6 +17,8 @@ import os
 from pathlib import Path
 import warnings
 from typing import Callable, Literal
+
+from bits.src import parse
 
 # Different possible naming that can be found elsewhere to refer to the GNSS constellations. Case is ignored.
 gnss_id_variants = {
@@ -253,3 +256,82 @@ def get_example_data_filepath(data_type: Literal["ephemeris", "raw", "pvt"],
         filepath_list.append(Path(os.path.join(example_data_folderpath, rover_type, file)))
 
     return tuple(filepath_list)
+
+
+def get_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame|None = None, ephem_filepath: str|None = None,
+                  ignore_warnings: bool = False) -> pd.DataFrame:
+    """
+    Returns ephemeris dataframe from either an existing dataframe, from a rinex filepath or from the internet.
+
+    :param pd_gnss_raw: GNSS raw dataframe from BITS parser
+    :param pd_ephemeris: ephemeris dataframe from BITS parser
+    :param ephem_filepath: Path of a rinex nav file
+    :param ignore_warnings: Set to True for no warnings
+    :return: ephemeris dataframe from BITS parser
+    """
+    kepler_ephemeris_required_columns = ["time", "time_of_ephemeris", "sqrta", "e", "i0", "idot", "omega0", "omega",
+                                         "m0", "omegadot", "deltan", "cuc", "cus", "crc", "crs", "cic", "cis"]
+    state_ephemeris_required_columns = ["time", "time_of_ephemeris", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2"]
+    clock_ephemeris_required_columns = ["clock_bias", "clock_drift", "clock_drift_rate"]
+    klobuchar_ephemeris_required_columns = ["klo_a0", "klo_a1", "klo_a2", "klo_a3",
+                                            "klo_b0", "klo_b1", "klo_b2", "klo_b3"]
+
+    if pd_ephemeris is None:
+        if ephem_filepath is None:
+            ephem_filepath = ephemeris_from_internet(pd_gnss_raw["time"].iloc[0])
+        pd_ephemeris = parse.ephemeris.rinex(ephem_filepath)
+
+    # Check ephemeris dataframe
+    if not ignore_warnings:
+        clock_ok = check_dataframe(pd_ephemeris, clock_ephemeris_required_columns)
+        klo_ok = check_dataframe(pd_ephemeris, klobuchar_ephemeris_required_columns)
+        kepler_ok = check_dataframe(pd_ephemeris, kepler_ephemeris_required_columns, with_warning=False)
+        state_ok = check_dataframe(pd_ephemeris, state_ephemeris_required_columns, with_warning=False)
+
+        if "gnss_id" in pd_gnss_raw.columns:
+            if pd_gnss_raw["gnss_id"].isin(["gal", "gps", "bei"]).any() and not kepler_ok:
+                warnings.warn("No kepler parameters found. Galileo, GPS and Beidou are unavailable.")
+            if pd_gnss_raw["gnss_id"].isin(["glo"]).any() and not state_ok:
+                warnings.warn("No state parameters found. Glonass is unavailable.")
+
+        if not clock_ok:
+            warnings.warn("No clock corrections found.")
+
+        if not klo_ok:
+            warnings.warn("No Klobuchar parameters found. Ionospheric corrections are not available.")
+
+    return pd_ephemeris
+
+
+def ephemeris_from_internet(time: np.ndarray) -> str:
+    """
+    Loads ephemeris from https://cddis.nasa.gov/.
+    To be implemented.
+    :param time: ephemeris time required (UTC)
+    :return: filepath of the downloaded rinex ephemeris file
+    """
+    raise NotImplementedError("Getting navdata from the internet is not yet implemented. "
+                              "Please use a downloaded rinex nav file.")
+
+
+def get_data_from_ephemeris(pd_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """
+    Retrieves ephemeris data from columns "cols" of pd_ephemeris of corresponding sv_id and closest time from pd_raw.
+
+    :param pd_raw: GNSS raw dataframe from BITS parser
+    :param pd_ephemeris: ephemeris dataframe from BITS parser
+    :param cols: columns to retrieve from pd_ephemeris
+    :return: GNSS raw dataframe with ephemeris data
+    """
+    raw_sorted = pd_raw.sort_values("time").reset_index(drop=True)
+    ephem_sorted = pd_ephemeris.sort_values("time").reset_index(drop=True)
+
+    merged = pd.merge_asof(
+        raw_sorted,
+        ephem_sorted[["time", "sv_id"] + cols],
+        on="time",
+        by="sv_id",
+        direction="nearest",
+        suffixes=("_raw", "")
+    )
+    return merged

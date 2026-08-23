@@ -13,8 +13,7 @@ import warnings
 import pandas as pd
 from pathlib import Path
 
-from bits.src.parse.utils import normalize_gnss_constellation
-from bits.src import convert
+from bits.src import convert, utils
 
 
 def rinex(filepath: str|Path) -> pd.DataFrame:
@@ -47,6 +46,12 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
 
     ephemeris = georinex.load(filepath)
 
+    if ephemeris.rinextype != "nav":
+        txt = f"Rinex {ephemeris.rinextype} cannot be parsed with the rinex navigation parser."
+        if ephemeris.rinextype == "obs":
+            txt += f" Please use bits.parse.raw.rinex('{filepath}') instead."
+        raise ValueError(txt)
+
     pd_ephemeris = ephemeris.to_dataframe().dropna(how='all')
 
     # Get rid of unhealthy satellites
@@ -60,7 +65,7 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
     pd_ephemeris["gnss_id"] = indexes.get_level_values(1)
     pd_ephemeris["prn_id"] = pd_ephemeris["gnss_id"].apply(lambda sv: int(sv[1:]))
     pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(lambda sv: sv[0])
-    pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(normalize_gnss_constellation)
+    pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(utils.normalize_gnss_constellation)
     pd_ephemeris["sv_id"] = pd_ephemeris["gnss_id"].astype(str) + pd_ephemeris["prn_id"].astype(str)  # Add sv_id
     pd_ephemeris["time_rinex"] = indexes.get_level_values(0)
 

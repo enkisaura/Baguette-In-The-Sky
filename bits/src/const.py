@@ -16,7 +16,6 @@ C = 299792458  # Speed of light (m/s)
 NU = 3.986005e14  # WGS 84 value of the earth's gravitational constant for GPS user (m3/s2)
 OMEGA_E = 7.2921151467e-5  # WGS 84 value of the earth's rotation rate (rad/s)
 OMEGA_E_BEI = 7.2921150e-5  # BEIDOU value of the earth's rotation rate (rad/s)
-F = -4.442807633e-10 # float : Relativistic correction term (s/m^(1/2))
 G = 9.80665 # gravitational acceleration (m/s²)
 RE = 6378137 # WGS 84 Earth Equatorial Radius (m)
 J2 = 0.0010826262 # Oblate Earth Gravity Coefficient
@@ -63,7 +62,7 @@ WEATHER_PARAM = {
     "deltalambda": (0, 0.33, 0.46, 0.74, 0.3), # water vapour "lapse rate" ()
 }
 K1 = 77.604 # (K/mbar)
-K2 = 382000 # (K²/mbar)
+K2 = 382_000 # (K²/mbar)
 RD = 287.054 # (J/Kg/K)
 GM = 9.784 # (m/s²)
 

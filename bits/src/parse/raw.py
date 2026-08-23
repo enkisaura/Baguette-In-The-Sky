@@ -15,10 +15,9 @@ import re
 import os
 from pathlib import Path
 
-from bits.src import convert, const
-from bits.src.parse.utils import normalize_gnss_constellation
+from bits.src import convert, const, utils
 
-# Get read of FutureWarning from georinex
+# Get rid of FutureWarning from georinex
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="georinex")
 
@@ -26,6 +25,13 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="georinex")
 def rinex(filepath: str|Path) -> pd.DataFrame:
     # Parsing rinex file to dataframe
     obs = georinex.load(filepath, verbose=True)
+
+    if obs.rinextype != "obs":
+        txt = f"Rinex {obs.rinextype} cannot be parsed with the rinex observation parser."
+        if obs.rinextype == "nav":
+            txt += f" Please use bits.parse.ephemeris.rinex('{filepath}') instead."
+        raise ValueError(txt)
+
     header = georinex.rinexheader(filepath)
     obs_df = obs.to_dataframe()
     obs_df = obs_df.reset_index()
@@ -39,7 +45,7 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
     # Get sv id info
     # Get constellation id
     obs_df["gnss_id"] = obs_df["sv"].str[0]
-    obs_df["gnss_id"] = obs_df["gnss_id"].apply(normalize_gnss_constellation)
+    obs_df["gnss_id"] = obs_df["gnss_id"].apply(utils.normalize_gnss_constellation)
     # Get PRN #
     obs_df["prn_id"] = obs_df["sv"].str[1:]
     obs_df["prn_id"] = obs_df["prn_id"].astype(int)
@@ -71,7 +77,7 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
 
 
     # Convert Timestamp to UTC
-    time_system = normalize_gnss_constellation(obs.time_system)
+    time_system = utils.normalize_gnss_constellation(obs.time_system)
     obs_df["time"] = convert.time.constellation_time_to_utc(obs_df["time"], gnss_id=time_system)
 
     # Get pseudorange

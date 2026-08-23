@@ -13,8 +13,7 @@ import numpy as np
 import warnings
 from typing import NamedTuple
 
-from bits.src import const, convert, parse
-from bits.src.parse.utils import check_dataframe
+from bits.src import const, convert, parse, utils
 
 
 class SVState(NamedTuple):
@@ -70,21 +69,37 @@ class KeplerianParameters(NamedTuple):
     m0: np.ndarray  # Mean anomaly at reference time (semi-circles)
 
 
-def compute_tk(toe: np.ndarray, tow: np.ndarray) -> np.ndarray:
+def compute_corrected_mean_motion(a: np.ndarray, deltan: np.ndarray) -> np.ndarray:
     """
-    Computes the elapsed time since ephemeris.
+    Computes corrected mean motion
 
-    :param toe: Ephemeris data reference time of week (secondes)
-    :param tow: Time of week at which the satellite's position should be computed (secondes)
-    :return: elapsed time since ephemeris (secondes)
+    :param a: semi-major axis (m)
+    :param deltan: mean Motion difference from computed value at reference time (semi-circles/s)
+    :return: corrected mean motion (rad/sec)
     """
-    tk = tow - toe
-    # Week crossover
-    tk = np.where(tk > 302400, tk - 604800, tk)
-    tk = np.where(tk < -302400, tk + 604800, tk)
+    n0 = np.sqrt(const.NU / a ** 3)  # Computed mean motion (rad/sec)
+    return n0 + deltan
 
-    return tk
+def compute_eccentric_anomaly(tk: np.ndarray[float], e: np.ndarray, m0: np.ndarray, n: np.ndarray,
+                              ek_iterations: int = 5) -> np.ndarray:
+    """
+    Computes eccentric anomaly at tk
 
+    :param tk: elapsed time since ephemeris (s)
+    :param e: eccentricity ()
+    :param m0: mean anomaly at reference time (semi-circles)
+    :param n: corrected mean motion (rad/sec)
+    :param ek_iterations: number of iterations to compute the eccentric anomaly (int)
+    :return: eccentric anomaly (rad)
+    """
+    mk = m0 + n * tk  # Mean anomaly
+
+    # Kepler’s equation(𝑀𝑘=𝐸𝑘 − 𝑒 sin 𝐸𝑘 ) may be solved for Eccentric anomaly(𝐸𝑘) by iteration:
+    ek = mk  # Initial Value (radians)
+    for i in range(ek_iterations):  # Refined Value, minimum of three iterations
+        ek = ek + (mk - ek + e * np.sin(ek)) / (1 - e * np.cos(ek))
+
+    return ek
 
 def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, time: np.ndarray, leap_sec: np.ndarray,
                           ek_iterations: int = 5, omega_e: float|np.ndarray = const.OMEGA_E) -> SVState:
@@ -107,14 +122,12 @@ def kepler_based_sv_model(orbit_param: KeplerianParameters, toe: np.ndarray, tim
     toe_tow = convert.time.utc_to_tow(toe, leap_sec)  / np.timedelta64(1, "s")
 
     a = orbit_param.sqrta ** 2  # Semi-major axis
-    n0 = np.sqrt(const.NU / a ** 3)  # Computed mean motion (rad/sec)
-    n = n0 + orbit_param.deltan  # Corrected mean motion
-    mk = orbit_param.m0 + n * tk  # Mean anomaly
 
-    # Kepler’s equation(𝑀𝑘=𝐸𝑘 − 𝑒 sin 𝐸𝑘 ) may be solved for Eccentric anomaly(𝐸𝑘) by iteration:
-    ek = mk  # Initial Value (radians)
-    for i in range(ek_iterations):  # Refined Value, minimum of three iterations
-        ek = ek + (mk - ek + orbit_param.e * np.sin(ek)) / (1 - orbit_param.e * np.cos(ek))
+    # Corrected mean motion
+    n = compute_corrected_mean_motion(a, orbit_param.deltan)
+
+    # Eccentric anomaly
+    ek = compute_eccentric_anomaly(tk, orbit_param.e, orbit_param.m0, n, ek_iterations)
 
     # True Anomaly (unambiguous quadrant)
     vk = 2 * np.arctan(np.sqrt((1 + orbit_param.e) / (1 - orbit_param.e)) * np.tan(ek / 2))
@@ -292,7 +305,6 @@ def state_propagation_based_sv_model(EphemState: SVState, toe: np.ndarray, time:
     :param EphemState: Broadcast SVState in ECEF
     :param toe: Ephemeris data reference time in UTC (datetime64)
     :param time: Time at which the satellite's position should be computed in UTC (datetime64)
-    :param tk: Elapsed time since ephemeris data reference (secondes)
     :param rk_step_s: Runge-Kutta step size (seconds)
     :return: SVState(x, y, z, vx, vy, vz, ax, ay, az) in ECEF (m)
     """
@@ -338,13 +350,16 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
     :param ephem_filepath: Path of a rinex nav file
     :return: BITS raw dataframe with corresponding sv positions
     """
+
+    pd_gnss_raw = pd_gnss_raw.copy()
+
     raw_required_columns = ["time", "pr_m", "gnss_id", "sv_id"]
-    gps_ephemeris_required_columns = ["time", "time_of_ephemeris", "sqrta", "deltan", "m0", "e",
+    kepler_ephemeris_required_columns = ["time", "time_of_ephemeris", "sqrta", "deltan", "m0", "e",
                                       "omega", "omega0", "omegadot", "i0", "idot",
                                       "cis", "cic", "crs", "crc", "cus", "cuc"]
-    glo_ephemeris_required_columns = ["time", "time_of_ephemeris", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2"]
+    state_ephemeris_required_columns = ["time", "time_of_ephemeris", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2"]
 
-    if not check_dataframe(pd_gnss_raw, raw_required_columns):
+    if not utils.check_dataframe(pd_gnss_raw, raw_required_columns):
         warnings.warn("Missing columns in pd_gnss_raw, cannot add SV states.")
         return pd_gnss_raw
 
@@ -358,18 +373,21 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
         pr_column_name = "pr_m"
 
     # Get ephemeris
-    pd_gnss = retrieve_ephemeris(pd_gnss_raw, pd_ephemeris, ephem_filepath=ephem_filepath)
-    if (not check_dataframe(pd_gnss, gps_ephemeris_required_columns)
-            and not check_dataframe(pd_gnss, glo_ephemeris_required_columns)):
+    pd_ephemeris = utils.get_ephemeris(pd_gnss_raw, pd_ephemeris, ephem_filepath, ignore_warnings=True)
+
+    kepler_ok = utils.check_dataframe(pd_ephemeris, kepler_ephemeris_required_columns)
+    state_ok = utils.check_dataframe(pd_ephemeris, state_ephemeris_required_columns)
+
+    if not kepler_ok or not state_ok:
         warnings.warn("Missing ephemeris data, cannot add SV states.")
-        return pd_gnss
+        return pd_gnss_raw
 
 
     # 1. Compute satellite coordinates at the emission time in the associated ECEF reference frame (i.e., tied to the
     # emission time).
     # Find emission time
-    tof = convert.time.process_timedelta(pd_gnss[pr_column_name] / const.C)
-    emmission_time = pd_gnss[timestamp_column_name] - tof
+    tof = convert.time.process_timedelta(pd_gnss_raw[pr_column_name] / const.C)
+    pd_gnss_raw["emission_time"] = pd_gnss_raw[timestamp_column_name] - tof
 
     # Compute sv states at emission time
     cols = [
@@ -379,31 +397,39 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
     ]
 
     # Compute state propagation-based sv state (Glonass)
-    propagation_based_mask = pd_gnss["gnss_id"] == "glo"
-    pd_glo = pd_gnss[propagation_based_mask]
-    if not pd_glo.empty and check_dataframe(pd_gnss, glo_ephemeris_required_columns):
+    propagation_based_mask = pd_gnss_raw["gnss_id"] == "glo"
+    pd_glo = pd_gnss_raw[propagation_based_mask]
+    if not pd_glo.empty and state_ok:
         # Get initial SV state from ephemeris
         col_to_field = {
             "X": "x", "Y": "y", "Z": "z",
             "dX": "vx", "dY": "vy", "dZ": "vz",
             "dX2": "ax", "dY2": "ay", "dZ2": "az",
         }
+
+        # Get ephemeris data
+        pd_glo = utils.get_data_from_ephemeris(pd_glo, pd_ephemeris, state_ephemeris_required_columns[1:])
+
         Ephem_state = SVState(**{field: pd_glo[col].to_numpy() for col, field in col_to_field.items()})
 
         # Compute SV state
         sv_state = state_propagation_based_sv_model(Ephem_state, toe=pd_glo['time_of_ephemeris'],
-                                                    time=emmission_time[propagation_based_mask.to_numpy()])
+                                                    time=pd_glo["emission_time"])
         pd_glo.loc[:, cols] = np.column_stack(sv_state)
+        pd_glo.drop(kepler_ephemeris_required_columns[1:], inplace=True, axis="columns", errors="ignore")
     else:
         pd_glo = pd.DataFrame()
 
     # Compute orbit-based sv state (Galileo, GPS, Beidou)
-    orbit_based_mask = pd_gnss["gnss_id"].isin(["gal", "gps", "bei"])
-    pd_gps = pd_gnss[orbit_based_mask]
+    orbit_based_mask = pd_gnss_raw["gnss_id"].isin(["gal", "gps", "bei"])
+    pd_gps = pd_gnss_raw[orbit_based_mask]
 
-    if not pd_gps.empty and check_dataframe(pd_gnss, gps_ephemeris_required_columns):
+    if not pd_gps.empty and kepler_ok:
+        # Get ephemeris data
+        pd_gps = utils.get_data_from_ephemeris(pd_gps, pd_ephemeris, kepler_ephemeris_required_columns[1:])
+
         # Get leap seconds
-        leap_sec = convert.time.count_leap_seconds(emmission_time[orbit_based_mask.to_numpy()], pd_gps["gnss_id"])
+        leap_sec = convert.time.count_leap_seconds(pd_gps["emission_time"], pd_gps["gnss_id"])
 
         # Get Keplerian set of parameters alongside correction parameters
         orbit_param = KeplerianParameters(**{field: pd_gps[field].to_numpy() for field in KeplerianParameters._fields})
@@ -413,17 +439,21 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
 
         # Compute SV state
         sv_state_np_tuple = kepler_based_sv_model(orbit_param, toe=pd_gps['time_of_ephemeris'],
-                                                  time=emmission_time[orbit_based_mask.to_numpy()], leap_sec=leap_sec,
+                                                  time=pd_gps["emission_time"], leap_sec=leap_sec,
                                                   omega_e=omega_e)
         pd_gps.loc[:, cols] = np.column_stack(sv_state_np_tuple)
+        pd_gps.drop(kepler_ephemeris_required_columns[1:], axis="columns", inplace=True, errors="ignore")
     else:
         pd_gps = pd.DataFrame()
 
     pd_gnss = pd.concat([pd_gps, pd_glo], axis=0)
+    pd_gnss.drop("emission_time", axis="columns", inplace=True, errors="ignore")
 
     # 2. Transform satellite coordinates from the system tied to the earth at "emission time" to the system tied to the
     # earth at "reception time" (which is common for all measurements). In order to do so, one must consider the earth
     # rotation during the time interval that the signal takes to propagate from the satellite to the receiver:
+    # Find emission time
+    tof = convert.time.process_timedelta(pd_gnss[pr_column_name] / const.C)
     pd_gnss[["x_sv_m", "y_sv_m", "z_sv_m"]] = pd.Series(convert.space.rotate_ecef(pd_gnss["x_sv_m"], pd_gnss["y_sv_m"],
                                                                                   pd_gnss["z_sv_m"], tof))
     pd_gnss[["vx_sv_mps", "vy_sv_mps", "vz_sv_mps"]] = pd.Series(convert.space.rotate_ecef(pd_gnss["vx_sv_mps"],
@@ -447,28 +477,25 @@ def retrieve_ephemeris(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = N
     :return: GNSS raw dataframe with ephemeris
     """
     gps_ephemeris_required_columns = ["time", "time_of_ephemeris", "sqrta", "e", "i0", "idot", "omega0", "omega", "m0",
-                                      "omegadot",
-                                      "deltan", "cuc", "cus", "crc", "crs", "cic", "cis"]
-    glo_ephemeris_required_columns = ["time", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2", ]
+                                      "omegadot", "deltan", "cuc", "cus", "crc", "crs", "cic", "cis"]
+    glo_ephemeris_required_columns = ["time", "time_of_ephemeris", "X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2"]
+    ephemeris_keep_columns = ["clock_bias", "clock_drift", "clock_drift_rate", "tgd"]
 
     # Check if ephemeris is already retrieved
-    gps_present = check_dataframe(pd_gnss_raw, gps_ephemeris_required_columns, with_warning=False)
-    glo_present = check_dataframe(pd_gnss_raw, glo_ephemeris_required_columns, with_warning=False)
-    if not gps_present and not glo_present:
-        if pd_ephemeris is None:
-            if ephem_filepath is None:
-                pd_ephemeris = ephemeris_loader(pd_gnss_raw["time"].iloc[0])  # Get ephemeris from the internet
-            else:
-                pd_ephemeris = parse.ephemeris.rinex(ephem_filepath)
-        # Find corresponding ephemeris for each SV from gnss_raw
-        merged = pd_gnss_raw.merge(pd_ephemeris, on=['sv_id'], suffixes=('', '_navdata'))
-        # Find difference between ephemeris and gnss_raw timestamp
-        time_diff = np.abs((merged["time"] - merged["time_of_ephemeris"]))
-        closest_matches = merged.loc[time_diff.groupby([merged["time"], merged["gnss_id"], merged["sv_id"]]).idxmin()]
-    else:
-        closest_matches = pd_gnss_raw
+    gps_present = utils.check_dataframe(pd_gnss_raw, gps_ephemeris_required_columns, with_warning=False)
+    glo_present = utils.check_dataframe(pd_gnss_raw, glo_ephemeris_required_columns, with_warning=False)
+    if gps_present or glo_present: # Ephemeris are already there
+        return pd_gnss_raw
 
-    return closest_matches
+    if pd_ephemeris is None:
+        if ephem_filepath is None:
+            pd_ephemeris = ephemeris_loader(pd_gnss_raw["time"].iloc[0])  # Get ephemeris from the internet
+        else:
+            pd_ephemeris = parse.ephemeris.rinex(ephem_filepath)
+
+    cols_to_get = gps_ephemeris_required_columns[1:] + glo_ephemeris_required_columns[2:] + ephemeris_keep_columns
+    pd_gnss_raw = utils.get_data_from_ephemeris(pd_gnss_raw, pd_ephemeris, cols_to_get)
+    return pd_gnss_raw
 
 
 def ephemeris_loader(time: np.ndarray):
