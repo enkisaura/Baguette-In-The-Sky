@@ -13,8 +13,9 @@ import pandas as pd
 import numpy as np
 import georinex
 import os
-from bits.src.reference_frame_object import GnssTimestamp
-from bits.src.naming import normalize_gnss_constellation
+
+from bits.src import convert
+from bits.src.parse.utils import normalize_gnss_constellation
 from bits.src.convert.other import doppler_to_pr_rate
 
 # Get read of FutureWarning from georinex
@@ -22,7 +23,7 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="georinex")
 
 
-def skydel_raw(filepath: str) -> pandas.DataFrame:
+def skydel(filepath: str) -> pandas.DataFrame:
     """
     Parse skydel raw data to pandas Dataframe.
     :param filepath: Path of the file
@@ -47,15 +48,14 @@ def skydel_raw(filepath: str) -> pandas.DataFrame:
     pd_data["gnss_id"] = pd_data["gnss_id"].apply(normalize_gnss_constellation)
     pd_data["sv_id"] = pd_data["gnss_id"] + pd_data["prn_id"].astype(str) # Add sv_id
 
-    pd_data["time"] = \
-        pd_data.apply(lambda row: GnssTimestamp.from_gps_tow(row["GPS Week Number"], row["GPS TOW"]), axis=1)
+    pd_data["time"] = convert.time.tow_to_utc(pd_data["GPS Week Number"], pd_data["GPS TOW"], gnss_id="gps")
 
     pd_data.rename(columns=translation_dict, inplace=True)
 
     return pd_data
 
 
-def micdrop_raw(filepath: str) -> pandas.DataFrame:
+def micdrop(filepath: str) -> pandas.DataFrame:
     """
     Parse micdrop raw data to pandas Dataframe.
     :param filepath: Path of the file
@@ -72,9 +72,8 @@ def micdrop_raw(filepath: str) -> pandas.DataFrame:
     pd_data = pd.read_csv(filepath)
     pd_data.rename(columns=translation_dict, inplace=True)
 
-    # Convert gps time milliseconds to GnssTimestamp
-    pd_data["time"] = \
-        pd_data["time"].apply(lambda timestamp: GnssTimestamp.from_gps_time(timestamp/1000))
+    # Convert gps time milliseconds to UTC
+    pd_data["time"] = convert.time.secondes_to_utc(pd_data["time"]/1000, gnss_id="gps")
 
     # Convert Doppler shift to pr_rate -> Works only with L1 !!!!
     pd_data['pr_rate_mps'] = np.nan
@@ -92,7 +91,7 @@ def micdrop_raw(filepath: str) -> pandas.DataFrame:
 
     return pd_data
 
-def rinex_obs(filepath: str) -> pandas.DataFrame:
+def rinex(filepath: str) -> pandas.DataFrame:
     # Parsing rinex file to dataframe
     obs = georinex.load(filepath, verbose=True)
     obs_df = obs.to_dataframe()
@@ -105,8 +104,7 @@ def rinex_obs(filepath: str) -> pandas.DataFrame:
     })
 
     # Convert Timestamp to GnssTimestamp
-    obs_df["time"] = \
-        obs_df["time"].apply(lambda timestamp: GnssTimestamp.from_pd_timestamp_gps_time(timestamp))
+    obs_df["time"] = convert.time.constellation_time_to_utc(obs_df["time"], gnss_id="gps") # TODO issue #15
 
     # Get constellation id
     obs_df["gnss_id"] = obs_df["sv"].str[0]

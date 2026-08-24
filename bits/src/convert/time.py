@@ -1,14 +1,20 @@
+"""
+Time reference system conversions algorithms.
+
+Conversions are based on the Coordinated Universal Time (UTC) reference system and on the numpy datetime64 and
+timedelta64 formats.
+"""
+
 import pandas as pd
 import numpy as np
-from typing import Tuple
 
 UNIX_EPOCH = np.datetime64("1970-01-01T00:00:00", "ns") # Starting epoch of UNIX time (UTC)
+J2000_EPOCH = np.datetime64("2000-01-01T12:00:00", "ns")  # Julian Date 2451545.0 (UTC)
+GST_EPOCH = np.datetime64("1999-08-21T23:59:47", "ns") # Starting epoch of Galileo System Time (GST) (UTC)
 GPST_EPOCH = np.datetime64("1980-01-06T00:00:00", "ns") # Starting epoch of GPS Time (GPST) (UTC)
 BDT_EPOCH = np.datetime64("2006-01-01 00:00:00", "ns") # Starting epoch of Beidou Time (BDT) (UTC)
 
-NS_PER_SECOND = 1_000_000_000
-SECONDS_PER_DAY = 86400
-SECONDS_PER_WEEK = 604800
+GST_EPOCH_SEC_TO_MIDNIGHT = np.timedelta64(13, "s")
 
 LEAP_SECONDS = np.array([
     "1981-06-30T23:59:59", "1982-06-30T23:59:59", "1983-06-30T23:59:59",
@@ -19,13 +25,12 @@ LEAP_SECONDS = np.array([
     "2012-06-30T23:59:59", "2015-06-30T23:59:59", "2016-12-31T23:59:59",
 ], dtype="datetime64[ns]")
 
-
-def process_time(time: np.ndarray|pd.Series|np.datetime64|pd.Timestamp) -> Tuple[np.ndarray, bool]:
+def process_time(time: np.ndarray|pd.Series|np.datetime64|pd.Timestamp) -> np.ndarray:
     """
     Convert np.ndarray, pd.Series, np.datetime64, pd.Timestamp to a proper np.ndarray
 
-    :param time:
-    :return: converted format, is_scalar set to True if input was a scalar
+    :param time: time to process (UTC)
+    :return: converted format (UTC)
     """
     is_scalar = isinstance(time, (np.datetime64, pd.Timestamp))
 
@@ -42,29 +47,76 @@ def process_time(time: np.ndarray|pd.Series|np.datetime64|pd.Timestamp) -> Tuple
     if is_scalar:
         arr = arr[0]
 
-    return arr, is_scalar
+    return arr
+
+def process_timedelta(timedelta: np.ndarray|pd.Series|np.timedelta64|pd.Timedelta|float) -> np.ndarray:
+    """
+    Convert np.ndarray, pd.Series, np.timedelta64, pd.Timedelta or float/int (interpreted as
+    seconds) to a proper np.ndarray of timedelta64[ns], preserving nanosecond precision.
+
+    :param timedelta: timedelta to convert (s)
+    :return: converted timedelta
+    """
+    is_scalar = isinstance(timedelta, (np.timedelta64, pd.Timedelta, int, float))
+
+    arr = np.asarray([timedelta]) if is_scalar else np.asarray(timedelta)
+
+    if np.issubdtype(arr.dtype, np.timedelta64):
+        arr = arr.astype("timedelta64[ns]")
+    else:
+        ns = np.round(arr.astype(np.float64) * 1e9).astype(np.int64)
+        arr = ns.astype("timedelta64[ns]")
+
+    if is_scalar:
+        arr = arr[0]
+
+    return arr
+
+
+def get_reference_epoch(gnss_id: str | np.ndarray) -> np.ndarray:
+    """
+    Finds the appropriate reference epoch for each constellation
+
+    :param gnss_id: constellation id (str: "gps", "gal", "bei")
+    :return: reference epoch (UTC)
+    """
+    gnss_id = np.asarray(gnss_id)
+    constellation_mapping = [gnss_id == "gal", gnss_id == "gps", gnss_id == "bei"]
+    epoch_mapping = [
+        np.broadcast_to(np.asarray(GST_EPOCH, dtype="datetime64[ns]"), gnss_id.shape),
+        np.broadcast_to(np.asarray(GPST_EPOCH, dtype="datetime64[ns]"), gnss_id.shape),
+        np.broadcast_to(np.asarray(BDT_EPOCH, dtype="datetime64[ns]"), gnss_id.shape)
+    ]
+    return np.select(constellation_mapping, epoch_mapping, default=np.datetime64("NaT", "ns"))
 
 
 def count_leap_seconds(time: np.ndarray, gnss_id: str | np.ndarray) -> np.ndarray:
     """
-    Counts the number of leap seconds that occurred between epoch (exclusif) and dt (inclusif).
+    Computes the time difference between UTC and the constellation time at "time".
 
     :param time: Time of the measurements (UTC, datetime64)
     :param gnss_id: constellation id (str: "gps", "gal", "bei", "glo")
-    :return: leap seconds count
+    :return: time difference to UTC (timedelta)
     """
-    time, _ = process_time(time)
+    time = process_time(time)
     gnss_id = np.asarray(gnss_id)
 
-    reference_epoch = np.where(gnss_id == "bei", BDT_EPOCH, GPST_EPOCH)
+    reference_epoch = get_reference_epoch(gnss_id)
 
     count_time = np.searchsorted(LEAP_SECONDS, time, side="left")
     count_epoch = np.searchsorted(LEAP_SECONDS, reference_epoch, side="left")
 
-    leap_sec = count_time - count_epoch
-    glo_leap_sec = np.zeros_like(leap_sec)
+    leap_sec = (count_time - count_epoch).astype("timedelta64[s]")
 
-    return np.where(gnss_id == "glo", glo_leap_sec, leap_sec)
+    # Leap seconds are mostly used as system time difference to UTC, therefore, this script actually return this time
+    # difference and not the actual number of leap seconds.
+    # GST time difference to UTC = leap seconds + system time difference to UTC at reference epoch (13s)
+    leap_sec = np.where(gnss_id == "gal", leap_sec + GST_EPOCH_SEC_TO_MIDNIGHT, leap_sec)
+
+    # GLONASST does not have leap seconds to UTC
+    leap_sec = np.where(gnss_id == "glo", np.timedelta64(0, "s"), leap_sec)
+
+    return leap_sec
 
 
 # Constellation-specific system time (datetime)
@@ -83,7 +135,7 @@ def constellation_time(time: np.ndarray, gnss_id: str | np.ndarray, to_utc: bool
     :param to_utc: set to True to convert constellation-specific system time to UTC, False otherwise
     :return: UTC time (UTC, datetime64) or Constellation system time (datetime64)
     """
-    time, _ = process_time(time)
+    time = process_time(time)
     gnss_id = np.asarray(gnss_id)
 
     if to_utc:
@@ -94,7 +146,7 @@ def constellation_time(time: np.ndarray, gnss_id: str | np.ndarray, to_utc: bool
     # Continuous time scales
     leap_seconds = count_leap_seconds(time, gnss_id)
 
-    return time + sign * leap_seconds.astype("timedelta64[s]")
+    return time + sign * leap_seconds
 
 
 def constellation_time_to_utc(time: np.ndarray, gnss_id: str | np.ndarray) -> np.ndarray:
@@ -185,78 +237,158 @@ def utc_to_glonass_time(time: np.ndarray) -> np.ndarray:
     """
     return constellation_time(time, gnss_id="glo", to_utc=False)
 
-# Constellation-specific system time (seconds)
 
+# Constellation-specific system time of week (seconds) and week (week)
 # Time of week
-def utc_to_tow(time: np.ndarray, leap_seconds: int | np.ndarray) -> np.ndarray:
+def utc_to_tow(time: np.ndarray, leap_seconds: int | np.ndarray | None = None, gnss_id: str | np.ndarray | None = None)\
+        -> np.ndarray:
     """
-    convert UTC to time of week (seconds).
+    Convert UTC to time of week (seconds).
 
     :param time: UTC time (datetime64)
     :param leap_seconds: number of leap seconds to add (seconds)
-    :return: time of week (seconds)
+    :param gnss_id: str or np.ndarray of str ("gps", "gal", "bei", "glo")
+    :return: time of week (timedelta)
     """
-    time, _ = process_time(time)
-    leap_seconds = np.asarray(leap_seconds)
+    time = process_time(time)
 
-    # Midnight (00:00:00) of the current UTC calendar day
-    days = time.astype("datetime64[D]")
-    midnight = days.astype("datetime64[ns]")
+    if leap_seconds is None:
+        if gnss_id is None:
+            raise ValueError("At least one of leap_seconds or gnss_id must be specified")
+        leap_seconds = count_leap_seconds(time, gnss_id)
+    leap_seconds = process_timedelta(leap_seconds)
 
-    # Day of week: Unix epoch (1970-01-01) was a Thursday -> index 4 if Sunday=0
-    day_of_week = (days.astype(np.int64) + 4) % 7  # 0=Sunday, ..., 6=Saturday
-
-    # Nanoseconds elapsed since midnight (exact int64, no precision loss)
-    ns_since_midnight = (time - midnight).astype("timedelta64[ns]").astype(np.int64)
-    sec_int = ns_since_midnight // NS_PER_SECOND
-    ns_frac = ns_since_midnight % NS_PER_SECOND
-    seconds_since_midnight = sec_int.astype(np.float64) + ns_frac.astype(np.float64) / NS_PER_SECOND
-
-    tow_utc = day_of_week * SECONDS_PER_DAY + seconds_since_midnight
+    # time - epoch(1970-01-01, Thursday) gives a timedelta64; +4 days realigns it on Sunday.
+    elapsed = time - UNIX_EPOCH + np.timedelta64(4, "D")
 
     # Add leap seconds, then wrap around the week boundary
-    tow = (tow_utc + leap_seconds) % SECONDS_PER_WEEK
+    tow = (elapsed + leap_seconds) % np.timedelta64(1, 'W')
 
     return tow
 
+def utc_to_week(time: np.ndarray, gnss_id: str | np.ndarray)\
+        -> np.ndarray:
+    """
+    Convert UTC to week number of the constellation system time.
 
-# Sidereal time
+    :param time: UTC time (datetime64)
+    :param gnss_id: str or np.ndarray of str ("gps", "gal", "bei", "glo")
+    :return: week (timedelta)
+    """
+    time = process_time(time)
+
+    time = utc_to_constellation_time(time, gnss_id)
+    reference_epoch = get_reference_epoch(gnss_id)
+
+    elapsed_time = time - reference_epoch
+    return (elapsed_time // np.timedelta64(1, "W")).astype("timedelta64[W]")
+
+
+def tow_to_utc(week: np.ndarray, tow: np.ndarray, gnss_id: str | np.ndarray) -> np.ndarray:
+    """
+    Converts constellation-specific time (week, seconds of week) to UTC
+
+    :param week: constellation-specific week number
+    :param tow: seconds elapsed since the beginning of the week
+    :param gnss_id: str or np.ndarray of str ("gps", "gal", "bei")
+    :return: corresponding UTC time (datetime)
+    """
+    week = week.astype("timedelta64[W]")
+    tow = process_timedelta(tow)
+
+    # Compute constellation-specific time (ignoring leap seconds).
+    const_time = get_reference_epoch(gnss_id) + week + tow
+
+    # GST starts 13 secs before midnight, constellation_time_to_utc is leap second based and does not account for that.
+    # Correcting leap sec for galileo
+    const_time = np.where(gnss_id == "gal", const_time + GST_EPOCH_SEC_TO_MIDNIGHT, const_time)
+
+    return constellation_time_to_utc(const_time, gnss_id)
+
+
+# Ellapsed time
+def utc_to_secondes(time: np.ndarray, gnss_id: str | np.ndarray | None=None) -> np.ndarray:
+    """
+    Converts a UTC time to ellapsed time from reference epoch in seconds. Default to UNIX time.
+
+    :param time: time to convert (UTC, datetime)
+    :param gnss_id: str or np.ndarray of str ("gps", "gal", "bei", "glo")
+    :return: ellapsed time since reference epoch (timedelta)
+    """
+    time = process_time(time)
+    gnss_id = np.asarray(gnss_id)
+
+    if gnss_id is None:
+        reference_epoch = UNIX_EPOCH
+    else:
+        reference_epoch = get_reference_epoch(gnss_id)
+
+    reference_epoch = np.where(gnss_id == "glo", UNIX_EPOCH, reference_epoch)
+
+    return time - reference_epoch
+
+def secondes_to_utc(timedelta: np.ndarray, gnss_id: str | np.ndarray | None = None) -> np.ndarray:
+    """
+    Converts ellapsed time from reference epoch in seconds to UTC time. Default to UNIX time.
+
+    :param timedelta: ellapsed time since reference epoch (timedelta)
+    :param gnss_id: str or np.ndarray of str ("gps", "gal", "bei", "glo")
+    :return: time in utc (datetime)
+    """
+    timedelta = process_timedelta(timedelta)
+    gnss_id = np.asarray(gnss_id)
+
+    if gnss_id is None:
+        reference_epoch = UNIX_EPOCH
+    else:
+        reference_epoch = get_reference_epoch(gnss_id)
+
+    reference_epoch = np.where(gnss_id == "glo", UNIX_EPOCH, reference_epoch)
+
+    return reference_epoch + timedelta
+
+
+# Greenwich Mean Sidereal Time
 def utc_to_sidereal(time: np.ndarray|pd.Series|np.datetime64|pd.Timestamp) -> np.ndarray|float:
     """
     Converts a UTC timestamp to Greenwich Mean Sidereal Time (GMST) in radians.
 
     :param time: pd.Timestamp, pd.Series, np.ndarray or np.datetime64 (UTC)
-    :return: GMST in radians (0 - 2π)
+    :return: GMST in radians (0 - 2pi)
     """
-    unix_epoch_jd = 2440587.5  # Julian Date of the Unix Epoch (1970-01-01 00:00:00 UTC)
-    j200_jd = 2451545.0  # Julian Date of epoch J2000.0
+    time = process_time(time)
 
-    time, is_scalar = process_time(time)
+    # Elapsed time since J2000.0, kept as a native timedelta64 as long as possible
+    elapsed_since_j2000 = time - J2000_EPOCH
 
-    ns_since_epoch = (time - UNIX_EPOCH).astype("timedelta64[ns]").astype(np.int64)
-    seconds_int = ns_since_epoch // NS_PER_SECOND
-    ns_frac = ns_since_epoch % NS_PER_SECOND
-    seconds_since_epoch = seconds_int.astype(np.float64) + ns_frac.astype(np.float64) / NS_PER_SECOND
+    # Julian centuries since J2000.0: the ONLY point where a plain float is required,
+    # since T feeds a nonlinear polynomial (not a duration-preserving operation)
+    T = elapsed_since_j2000 / np.timedelta64(36525, "D")
 
-    # Julian Date
-    jd = unix_epoch_jd + seconds_since_epoch / SECONDS_PER_DAY
-
-    # Julian century since J2000.0
-    T = (jd - j200_jd) / 36525
-
-    # GMST seconds (IAU 1982)
+    # GMST seconds (IAU 1982), as a scalar polynomial evaluation
     GMST_sec = (
-            67310.54841
-            + (876600 * 3600 + 8640184.812866) * T
-            + 0.093104 * (T ** 2)
-            - 6.2e-6 * (T ** 3)
+        67310.54841
+        + (876600 * 3600 + 8640184.812866) * T
+        + 0.093104 * (T ** 2)
+        - 6.2e-6 * (T ** 3)
     )
-    GMST_sec = GMST_sec % SECONDS_PER_DAY
+    GMST_sec = GMST_sec % 86400
 
     # Convert to radians
-    GMST_rad = (GMST_sec / SECONDS_PER_DAY) * (2 * np.pi)
-    GMST_rad = GMST_rad % (2 * np.pi)
+    GMST_rad = (GMST_sec / 86400) * (2 * np.pi)
 
-    if is_scalar:
-        return float(GMST_rad)
-    return GMST_rad
+    return GMST_rad % (2 * np.pi)
+
+# Time conversion utils
+def day_of_year(time: np.ndarray) -> np.ndarray:
+    """
+    Computes the day of year (1-indexed: Jan 1st = 1) from a np.datetime64 array.
+
+    :param time: np.ndarray of np.datetime64 (any resolution)
+    :return: np.ndarray of int, day of year
+    """
+    time = process_time(time)
+
+    days = time.astype("datetime64[D]")               # truncate to calendar day
+    year_start = days.astype("datetime64[Y]").astype("datetime64[D]")  # Jan 1st of that year
+    return (days - year_start).astype(np.int64) + 1

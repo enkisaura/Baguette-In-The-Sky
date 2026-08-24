@@ -11,7 +11,7 @@ __date__ = "2025-06-06"
 __version__ = "0.0.1"
 
 import os
-from bits.src.parsers import ephemeris, gnss_raw, nmea
+from bits.src import parse
 from bits.src.spp import *
 from bits.src.convert.space_conversion import ecef_to_enu
 
@@ -29,10 +29,10 @@ ephem2_filepath = os.path.join(test_data_directory_path, "TLSG00FRA_R_2026124000
 raw2_filepath = os.path.join(test_data_directory_path, "gnss_raw", "XXXX00FRA_R_20261241730_00U_01S_MO.rnx")
 nmea_filepath = os.path.join(test_data_directory_path, "20261241730_nmea.txt")
 
-pd_raw = gnss_raw.micdrop_raw(raw_filepath)
-pd_ephemeris2 = ephemeris.rinex_nav(ephem2_filepath)
-pd_raw2 = gnss_raw.rinex_obs(raw2_filepath)
-nmea_pd = nmea.gga(nmea_filepath)
+pd_raw = parse.raw.micdrop(raw_filepath)
+pd_ephemeris2 = parse.ephemeris.rinex(ephem2_filepath)
+pd_raw2 = parse.raw.rinex(raw2_filepath)
+nmea_pd = parse.pvt.gga(nmea_filepath)
 
 def test_glo_pos_estimate():
     pos_estimate(gnss_id="glo")
@@ -71,7 +71,7 @@ def test_azimuth_elevation():
     pd_az_el_raw = pd.DataFrame()
     for filename in os.listdir(az_el_skydel_raw_directory_path):
         raw_filepath = os.path.join(az_el_skydel_raw_directory_path, filename)
-        pd_az_el_raw = pd.concat([pd_az_el_raw, gnss_raw.skydel_raw(raw_filepath).iloc[:2]], axis=0)
+        pd_az_el_raw = pd.concat([pd_az_el_raw, parse.raw.skydel(raw_filepath).iloc[:2]], axis=0)
     pd_az_el_raw = pd_az_el_raw[pd_az_el_raw["gnss_id"] == "gps"].reset_index()
     pd_az_el_pvt, _ = get_approx_position_estimate(pd_az_el_raw, convergence_tolerance=100)
     pd_az_el_raw = get_sv_el_az(pd_az_el_raw, pd_az_el_pvt)
