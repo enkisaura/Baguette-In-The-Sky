@@ -291,9 +291,14 @@ def compute_weather_param(rx_lat: np.ndarray, day_of_year: np.ndarray,
     # Extrapolate average meteo parameter
     lat_list = const.WEATHER_PARAM["latitude"]
     lat_index = np.searchsorted(lat_list, rx_lat, side="left")
+    # Ensure lat_index is in table
+    lat_index = np.where(lat_index>=len(const.WEATHER_PARAM["latitude"]), len(const.WEATHER_PARAM["latitude"])-1, lat_index)
 
     lat_left = np.array(lat_list)[lat_index - 1]
-    lat_right = np.array(lat_list)[lat_index]
+    try:
+        lat_right = np.array(lat_list)[lat_index]
+    except:
+        print("gneh")
 
     param_left = np.array(const.WEATHER_PARAM[param0_name])[lat_index - 1]
     param_right = np.array(const.WEATHER_PARAM[param0_name])[lat_index]

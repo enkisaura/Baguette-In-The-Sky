@@ -168,7 +168,7 @@ def compute_speed_estimate(pr_rate: np.ndarray, geometry_matrix: np.ndarray, sv_
         txt = f"Not enough satellites in view (need at least {geometry_matrix.shape[1]} found {geometry_matrix.shape[0]})."
         raise PositionEstimationError(txt)
 
-    sv_relative_speed = np.sum(sv_speed * geometry_matrix[:, :3], axis=1).reshape(-1, 1) # TODO sum or norm ?
+    sv_relative_speed = np.sum(sv_speed * geometry_matrix[:, :3], axis=1).reshape(-1, 1)
     corrected_pr_rate = pr_rate + sv_relative_speed
 
     v_hat, cov_v, dop, residuals = weighted_least_square(corrected_pr_rate, geometry_matrix, weight_matrix)

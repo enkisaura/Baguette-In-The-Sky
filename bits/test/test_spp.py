@@ -38,6 +38,10 @@ pos_raw_df = fast_parse(get_example_data_filepath("raw", rover_type="sv")[0], pa
 pos_raw_df = pos_raw_df[["time", "sv_id", "gnss_id", "prn_id", "pr_m", "pr_rate_mps", "doppler_hz", "frequency_hz"]]
 pos_raw_df = pos_raw_df[pos_raw_df["time"].isin(pos_gt["time"])] # Only keep timestamp with an existing ground_truth
 
+# Circle
+receiver_gt = fast_parse(get_example_data_filepath("pvt", rover_type="circular")[0], parse.pvt.rmc)
+receiver_raw_df = fast_parse(get_example_data_filepath("raw", rover_type="circular")[0], parse.raw.rinex)
+
 
 def test_pos_gal():
     estimate(raw_df=pos_raw_df[pos_raw_df["gnss_id"] == "gal"], gt_df=pos_gt, gnss_id="gal")
@@ -54,6 +58,9 @@ def test_pos_bei():
 def test_pos_multi():
     estimate(raw_df=pos_raw_df, gt_df=pos_gt, gnss_id="all")
 
+def test_receiver():
+    pvt_df, _ = get_position_estimate(receiver_raw_df, pd_ephemeris=ephem_df, verbose=True)
+
 def estimate(raw_df:pd.DataFrame, gt_df:pd.DataFrame, gnss_id:str, verbose:bool = True):
     pvt_df, _ = get_position_estimate(raw_df, pd_ephemeris=ephem_df, verbose=verbose)
 
@@ -67,7 +74,7 @@ def estimate(raw_df:pd.DataFrame, gt_df:pd.DataFrame, gnss_id:str, verbose:bool 
 
     report = (
         f"Current precision for position is x{int(x_diff.abs().max())}m, y{int(y_diff.abs().max())}m, z{int(z_diff.abs().max())}m "
-        f"(mean = {int(x_diff.abs().mean())}, {int(y_diff.abs().mean())}, {int(z_diff.abs().mean())}), target precision is {required_pos_precision}m"
+        f"(mean = {int(x_diff.abs().mean())}, {int(y_diff.abs().mean())}, {int(z_diff.abs().mean())}), target precision is {required_pos_precision}m "
         f"Current precision for velocity is x{int(vx_diff.abs().max())}mps, y{int(vy_diff.abs().max())}m, z{int(vz_diff.abs().max())}mps "
         f"(mean = {int(vx_diff.abs().mean())}, {int(vy_diff.abs().mean())}, {int(vz_diff.abs().mean())}), target precision is {required_speed_precision}mps")
 
@@ -83,9 +90,10 @@ def estimate(raw_df:pd.DataFrame, gt_df:pd.DataFrame, gnss_id:str, verbose:bool 
 
 
 if __name__ == "__main__":
-    test_pos_gal()
-    test_pos_gps()
-    test_pos_glo()
-    test_pos_bei()
-    test_pos_multi()
+    #test_pos_gal()
+    #test_pos_gps()
+    #test_pos_glo()
+    #test_pos_bei()
+    #test_pos_multi()
+    test_speed_receiver()
 
