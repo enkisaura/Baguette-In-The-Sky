@@ -11,12 +11,13 @@ __version__ = "0.0.1"
 import georinex
 import warnings
 import pandas as pd
+import numpy as np
+from pathlib import Path
 
-from bits.src.parse.utils import normalize_gnss_constellation
-from bits.src import convert
+from bits.src import convert, utils
 
 
-def rinex(filepath):
+def rinex(filepath: str|Path) -> pd.DataFrame:
     """
     Parse rinex nav into pandas dataframe using georinex.
     :param filepath: Path of the rinex nav file
@@ -46,14 +47,27 @@ def rinex(filepath):
 
     ephemeris = georinex.load(filepath)
 
+    if ephemeris.rinextype != "nav":
+        txt = f"Rinex {ephemeris.rinextype} cannot be parsed with the rinex navigation parser."
+        if ephemeris.rinextype == "obs":
+            txt += f" Please use bits.parse.raw.rinex('{filepath}') instead."
+        raise ValueError(txt)
+
     pd_ephemeris = ephemeris.to_dataframe().dropna(how='all')
+
+    # Get SV health
+    pd_ephemeris["healthy"] = True
+    if "SatH1" in pd_ephemeris.columns:
+        pd_ephemeris["healthy"] = np.where(pd_ephemeris["SatH1"]==1, False, pd_ephemeris["healthy"])
+    if "health" in pd_ephemeris.columns:
+        pd_ephemeris["healthy"] = np.where(pd_ephemeris["health"]==1, False, pd_ephemeris["healthy"])
 
     # Rename and rearrange
     indexes = pd_ephemeris.index
     pd_ephemeris["gnss_id"] = indexes.get_level_values(1)
     pd_ephemeris["prn_id"] = pd_ephemeris["gnss_id"].apply(lambda sv: int(sv[1:]))
     pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(lambda sv: sv[0])
-    pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(normalize_gnss_constellation)
+    pd_ephemeris["gnss_id"] = pd_ephemeris["gnss_id"].apply(utils.normalize_gnss_constellation)
     pd_ephemeris["sv_id"] = pd_ephemeris["gnss_id"].astype(str) + pd_ephemeris["prn_id"].astype(str)  # Add sv_id
     pd_ephemeris["time_rinex"] = indexes.get_level_values(0)
 
@@ -66,9 +80,10 @@ def rinex(filepath):
     gnss_id_unsteered = pd_ephemeris.loc[mask_unsteered, "gnss_id"]
 
     # Unsteered constellations
-    pd_ephemeris.loc[mask_unsteered, "time_of_ephemeris"] = (
-        convert.time.tow_to_utc(week=convert.time.utc_to_week(pd_ephemeris.loc[mask_unsteered, "time"], gnss_id_unsteered),
-                                tow=pd_ephemeris.loc[mask_unsteered, "Toe"], gnss_id=gnss_id_unsteered))
+    if "Toe" in pd_ephemeris.columns:
+        pd_ephemeris.loc[mask_unsteered, "time_of_ephemeris"] = (
+            convert.time.tow_to_utc(week=convert.time.utc_to_week(pd_ephemeris.loc[mask_unsteered, "time"], gnss_id_unsteered),
+                                    tow=pd_ephemeris.loc[mask_unsteered, "Toe"], gnss_id=gnss_id_unsteered))
 
     # Constellation steered to UTC
     pd_ephemeris.loc[~mask_unsteered, "time_of_ephemeris"] = (
@@ -76,13 +91,16 @@ def rinex(filepath):
 
     # Get gps clock corrections
     if "TGD" not in pd_ephemeris.columns:
-        pd_ephemeris["TGD"] = None
+        pd_ephemeris["TGD"] = 0.0
 
     # Get glo clock corrections
     mask = pd_ephemeris["gnss_id"] == "glo"
     if mask.any():
         pd_ephemeris.loc[mask, "SVclockDrift"] = pd_ephemeris.loc[mask, "SVrelFreqBias"]
-        pd_ephemeris["SVclockDriftRate"] = pd_ephemeris["SVclockDriftRate"].fillna(0)
+        if "SVclockDriftRate" in pd_ephemeris.columns:
+            pd_ephemeris["SVclockDriftRate"] = pd_ephemeris["SVclockDriftRate"].fillna(0.0)
+        else:
+            pd_ephemeris["SVclockDriftRate"] = 0.0
 
     # Get Galileo time group delay
     mask = pd_ephemeris["gnss_id"] == "gal"
@@ -98,9 +116,18 @@ def rinex(filepath):
     pd_ephemeris = pd_ephemeris.rename(columns=lost_in_translation)
     pd_ephemeris = pd_ephemeris.dropna(axis=1, how='all')
     pd_ephemeris = pd_ephemeris.reset_index(drop=True)
+    if "tgd" not in pd_ephemeris.columns:
+        pd_ephemeris["tgd"] = pd_ephemeris["tgd"].astype("float64")
 
     try:
-        pd_ephemeris["ionospheric_param"] = [ephemeris.ionospheric_corr_GPS] * len(pd_ephemeris)
+        pd_ephemeris["klo_a0"] = [ephemeris.ionospheric_corr_GPS[0]] * len(pd_ephemeris)
+        pd_ephemeris["klo_a1"] = [ephemeris.ionospheric_corr_GPS[1]] * len(pd_ephemeris)
+        pd_ephemeris["klo_a2"] = [ephemeris.ionospheric_corr_GPS[2]] * len(pd_ephemeris)
+        pd_ephemeris["klo_a3"] = [ephemeris.ionospheric_corr_GPS[3]] * len(pd_ephemeris)
+        pd_ephemeris["klo_b0"] = [ephemeris.ionospheric_corr_GPS[4]] * len(pd_ephemeris)
+        pd_ephemeris["klo_b1"] = [ephemeris.ionospheric_corr_GPS[5]] * len(pd_ephemeris)
+        pd_ephemeris["klo_b2"] = [ephemeris.ionospheric_corr_GPS[6]] * len(pd_ephemeris)
+        pd_ephemeris["klo_b3"] = [ephemeris.ionospheric_corr_GPS[7]] * len(pd_ephemeris)
     except:
         txt = f"No ionospheric parameters found in rinex file {filepath}"
         warnings.warn(txt)

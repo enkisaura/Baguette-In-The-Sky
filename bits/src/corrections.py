@@ -12,36 +12,73 @@ __version__ = "0.0.1"
 
 import pandas as pd
 import numpy as np
-import math
 import warnings
 from typing import Literal
-from bits.src.sv_model import retrieve_ephemeris
-from bits.src import const, convert
-from bits.src.utils import check_dataframe
+
+from bits.src import const, convert, sv_model, utils
 
 # Clock corrections
-def compute_satellite_clock_correction(dt, a0, a1, a2) -> float:
+def compute_satellite_clock_correction(time:np.ndarray[np.datetime64], toe:np.ndarray[np.datetime64],
+                                       a0:np.ndarray[np.float64], a1:np.ndarray[np.float64], a2:np.ndarray[np.float64]) \
+        -> np.ndarray[np.float64]:
     """
     Compute polynomial satellite clock correction.
     source: https://gssc.esa.int/navipedia/index.php/Clock_Modelling
-    :param dt: Time from sv time of clock (s)
+    :param time: Time at which the satellite's position should be computed in UTC (datetime64)
+    :param toe: Ephemeris data reference time in UTC (datetime64)
     :param a0: SV clock bias (s)
     :param a1: SV clock drift (s^-1)
     :param a2: SV clock drift rate (s^-2)
     :return: Polynomial clock correction (s)
     """
-    satellite_clock_correction = a0 + a1*dt + np.sign(dt) * a2*(dt**2)
+    tk = (time - toe) / np.timedelta64(1, 's')
+    satellite_clock_correction = a0 + a1*tk + np.sign(tk) * a2 * (tk ** 2)
     return satellite_clock_correction
 
-def compute_relativistic_clock_correction(x: float, y: float, z: float,
-                             vx: float, vy: float, vz: float) -> float:
+def compute_relativistic_clock_correction_kepler(time:np.ndarray[np.datetime64], toe:np.ndarray[np.datetime64],
+                                                 sqrta:np.ndarray, e:np.ndarray, deltan:np.ndarray, m0:np.ndarray) \
+        -> np.ndarray:
     """
-    Relativistic clock corrections : dt_rel = -2 · (r · v) / c²
+    Computes relativistic clock corrections using kepler elements
+
+    :param time: Time at which the satellite's position should be computed in UTC (datetime64)
+    :param toe: Ephemeris data reference time in UTC (datetime64)
+    :param a: square root of semi-major axis (sqrt(m))
+    :param e: eccentricity ()
+    :param deltan: mean Motion difference from computed value at reference time (semi-circles/s)
+    :param m0: mean anomaly at reference time (semi-circles)
+    :return: eccentric anomaly (rad)
+    :return: Relativistic clock corrections (s)
+    """
+    tk = (time - toe) / np.timedelta64(1, 's')
+
+    # Corrected mean motion
+    n = sv_model.compute_corrected_mean_motion(sqrta ** 2, deltan)
+
+    # Eccentric anomaly
+    ek = sv_model.compute_eccentric_anomaly(tk, e, m0, n)
+
+    F = -2 * np.sqrt(const.NU) / const.C**2
+
+    return F * e * sqrta * np.sin(ek)
+
+def compute_relativistic_clock_correction_state(x: np.ndarray, y: np.ndarray, z: np.ndarray,
+                                                vx: np.ndarray, vy: np.ndarray, vz: np.ndarray) -> np.ndarray:
+    """
+    Computes relativistic clock corrections using SV state
+
+    :param x: Position of the satellite on the x axis in ECEF (m)
+    :param y: Position of the satellite on the y axis in ECEF (m)
+    :param z: Position of the satellite on the z axis in ECEF (m)
+    :param vx: Speed of the satellite on the x axis in ECEF (m/s)
+    :param vy: Speed of the satellite on the y axis in ECEF (m/s)
+    :param vz: Speed of the satellite on the z axis in ECEF (m/s)
+    :return: Relativistic clock corrections (s)
     """
     r_dot_v = x*vx + y*vy + z*vz
     return -2.0 * r_dot_v / const.C**2
 
-def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None) -> pd.DataFrame:
+def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame) -> pd.DataFrame:
     """
     Compute clock corrections using a pd.Dataframe ephemeris from the BITS ephemeris parser for GPS and Galileo
     :param pd_gnss_raw: GNSS raw dataframe from BITS parser
@@ -49,60 +86,112 @@ def get_clock_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame 
     :return: raw data with corrected pseudoranges and corresponding clock corrections
     """
     raw_required_columns = ["time", "pr_m", "gnss_id", "sv_id"]
-    ephem_in_raw_required_columns_poly = ["clock_bias", "clock_drift", "clock_drift_rate"]
-    ephem_in_raw_required_columns_relat_a = ["sqrta", "time_of_ephemeris", "deltan", "m0", "e"]
-    ephem_in_raw_required_columns_relat_b = ["e", "sqrta", "eccentric_anomaly"]
 
-    if not check_dataframe(pd_gnss_raw, raw_required_columns):
-        warnings.warn("Missing columns in pd_gnss_raw, cannot compute clock correction.")
+    ephem_required_columns = ["time", "time_of_ephemeris", "sv_id"]
+    ephem_sv_clock_required_columns = ["clock_bias", "clock_drift", "clock_drift_rate"]
+    ephem_relat_kepler_required_columns = ["sqrta", "e", "deltan", "m0"]
+    raw_relat_state_required_columns = ["x_sv_m", "y_sv_m", "z_sv_m", "vx_sv_mps", "vy_sv_mps", "vz_sv_mps", ]
+
+    ephem_col_to_get = ["time_of_ephemeris"]
+
+    # Check raw dataframe
+    if not utils.check_dataframe(pd_gnss_raw, raw_required_columns):
+        warnings.warn("Missing columns in raw, cannot compute clock correction.")
         return pd_gnss_raw
 
-    pd_gnss = retrieve_ephemeris(pd_gnss_raw, pd_ephemeris) # Get clock correction parameters from ephemeris
+    # Check ephemeris dataframe
+    if not utils.check_dataframe(pd_ephemeris, ephem_required_columns):
+        warnings.warn("Missing columns in ephemeris, cannot compute clock correction.")
+        return pd_gnss_raw
 
-    if not(check_dataframe(pd_gnss, ephem_in_raw_required_columns_poly)
-           and (check_dataframe(pd_gnss, ephem_in_raw_required_columns_relat_a)
-                or check_dataframe(pd_gnss, ephem_in_raw_required_columns_relat_b))):
-        warnings.warn("Missing ephemeris data, cannot compute clock correction.")
-        return pd_gnss
+    # Polynomial SV clock corrections
+    if not utils.check_dataframe(pd_ephemeris, ephem_sv_clock_required_columns):
+        warnings.warn("Missing columns in ephemeris, cannot compute SV clock correction.")
+        poly_ok = False
+    else:
+        poly_ok = True
+        ephem_col_to_get += ephem_sv_clock_required_columns
+
+    # Relativistic clock correction
+    # Galileo, GPS, Beidou
+    if pd_gnss_raw["gnss_id"].isin(["gal", "gps", "bei"]).any():
+        if utils.check_dataframe(pd_ephemeris, ephem_relat_kepler_required_columns):
+            relat_kepler_ok = True
+            ephem_col_to_get += ephem_relat_kepler_required_columns
+        else:
+            warnings.warn("Missing columns in ephemeris, cannot compute relativistic clock correction.")
+            relat_kepler_ok = False
+    else:
+        relat_kepler_ok = False
+    # Glonass
+    if pd_gnss_raw["gnss_id"].isin(["glo"]).any():
+        if utils.check_dataframe(pd_gnss_raw, raw_relat_state_required_columns):
+            relat_state_ok = True
+        else:
+            warnings.warn("Missing columns in raw, cannot compute relativistic clock correction. Please use bits.get_sv_states(raw_df) first.")
+            relat_state_ok = False
+    else:
+        relat_state_ok = False
+
+    # TGD
+    if utils.check_dataframe(pd_ephemeris, ["tgd"]):
+        tgd_ok = True
+        ephem_col_to_get += ["tgd"]
+    else:
+        warnings.warn("Missing columns in ephemeris, cannot compute time group delay clock correction.")
+        tgd_ok = False
+
+    # Get ephemeris data
+    pd_gnss_raw = utils.get_data_from_ephemeris(pd_gnss_raw, pd_ephemeris, ephem_col_to_get)
 
     # Check for already existing corrections
-    if not {"corr_pr_m"}.issubset(pd_gnss.columns):
-        pd_gnss["corr_pr_m"] = pd_gnss["pr_m"]
-    elif {"clock_corr_m"}.issubset(pd_gnss.columns):
-        pd_gnss["corr_pr_m"] -= pd_gnss["clock_corr_m"]
+    if not {"corr_pr_m"}.issubset(pd_gnss_raw.columns):
+        pd_gnss_raw["corr_pr_m"] = pd_gnss_raw["pr_m"]
+    elif {"clock_corr_m"}.issubset(pd_gnss_raw.columns): # Uncorrect pr so that we don't correct it twice
+        pd_gnss_raw["corr_pr_m"] -= pd_gnss_raw["clock_corr_m"]
+
+    pd_gnss_raw["clock_corr_m"] = 0.0
 
     # 1) Compute satellite clock correction:
-    tk = (pd_gnss["time"] - pd_gnss["time_of_ephemeris"]) / np.timedelta64(1, "s")
-
-    pd_gnss["poly_clock_corr_m"] = const.C * compute_satellite_clock_correction(tk, pd_gnss["clock_bias"],
-                                                                                pd_gnss["clock_drift"],
-                                                                                pd_gnss["clock_drift_rate"]).fillna(0)
+    if poly_ok:
+        pd_gnss_raw["poly_clock_corr_m"] = (
+                const.C * compute_satellite_clock_correction(pd_gnss_raw["time"],pd_gnss_raw["time_of_ephemeris"],
+                                                             pd_gnss_raw["clock_bias"], pd_gnss_raw["clock_drift"],
+                                                             pd_gnss_raw["clock_drift_rate"]))
+        pd_gnss_raw["clock_corr_m"] += pd_gnss_raw["poly_clock_corr_m"]
 
     # 2) Compute relativistic clock corrections
-    # GLONASS already compensate for part of the relativistic effects by design
-    glo_mask = pd_gnss["gnss_id"] == "glo"
-    pd_gnss.loc[~glo_mask, "relat_clock_corr_m"] = pd_gnss.apply(
-       lambda row: const.C * compute_relativistic_clock_correction(row["x_sv_m"], row["y_sv_m"], row["z_sv_m"],
-                                                                   row["vx_sv_mps"], row["vy_sv_mps"], row["vz_sv_mps"])
-        ,axis=1).fillna(0)
-    pd_gnss.loc[glo_mask, "relat_clock_corr_m"] = 0
+    glo_mask = pd_gnss_raw["gnss_id"] == "glo"
+    if relat_kepler_ok:
+        pd_gnss_raw.loc[~glo_mask, "relat_clock_corr_m"] = (
+                const.C * compute_relativistic_clock_correction_kepler(pd_gnss_raw["time"],pd_gnss_raw["time_of_ephemeris"],
+                                                                       pd_gnss_raw["sqrta"],pd_gnss_raw["e"],
+                                                                       pd_gnss_raw["deltan"],pd_gnss_raw["m0"],))
+        pd_gnss_raw.loc[~glo_mask, "clock_corr_m"] += pd_gnss_raw.loc[~glo_mask, "relat_clock_corr_m"]
 
-    # 3) Compute group delay
-    pd_gnss["tgd_clock_corr_m"] = const.C * pd_gnss["tgd"].fillna(0)
+    if relat_state_ok:
+        pd_gnss_raw.loc[glo_mask, "relat_clock_corr_m"] = (
+                const.C * compute_relativistic_clock_correction_state(pd_gnss_raw["x_sv_m"],pd_gnss_raw["y_sv_m"],
+                                                                      pd_gnss_raw["z_sv_m"], pd_gnss_raw["vx_sv_mps"],
+                                                                      pd_gnss_raw["vy_sv_mps"], pd_gnss_raw["vz_sv_mps"]))
+        pd_gnss_raw.loc[glo_mask, "clock_corr_m"] += pd_gnss_raw.loc[glo_mask, "relat_clock_corr_m"]
 
-    # 4) Fuse clock corrections
-    pd_gnss["clock_corr_m"] = pd_gnss.apply(lambda row: row["poly_clock_corr_m"] + row["relat_clock_corr_m"]
-                                                        - row["tgd_clock_corr_m"], axis=1)
+    # 3) Time group delay
+    if tgd_ok:
+        pd_gnss_raw.loc[pd_gnss_raw["tgd"].notna(), "clock_corr_m"] -= pd_gnss_raw["tgd"] * const.C
 
-    # 5) Correct pseudoranges
-    pd_gnss["corr_pr_m"] += pd_gnss["clock_corr_m"].fillna(0)
+    # 4) Correct pseudoranges
+    pd_gnss_raw["corr_pr_m"] += pd_gnss_raw["clock_corr_m"].fillna(0)
 
-    return pd_gnss
+    return pd_gnss_raw.drop(ephem_col_to_get, axis="columns", errors="ignore")
+
 
 ########################################################################################################################
 # Atmospheric corrections
-def compute_klobuchar(rx_lat: float, rx_lon: float, tow: float, sv_elevation: float, sv_azimuth: float,
-                      alpha: tuple[float, float, float, float], beta: tuple[float, float, float, float]) -> float:
+def compute_klobuchar(time: np.ndarray[np.datetime64], rx_lat: np.ndarray, rx_lon: np.ndarray,
+                      sv_elevation: np.ndarray, sv_azimuth: np.ndarray, signal_freq: np.ndarray,
+                      alpha: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
+                      beta: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]) -> np.ndarray:
     """
     Compute ionospheric delay using Klobuchar's model.
     GPS satellites broadcast the parameters of the Klobuchar ionospheric model for single frequency users. This
@@ -111,61 +200,62 @@ def compute_klobuchar(rx_lat: float, rx_lon: float, tow: float, sv_elevation: fl
     source: https://gssc.esa.int/navipedia/index.php?title=Klobuchar_Ionospheric_Model
     Klobuchar, J. A. 1987. Ionospheric time-delay algorithm for single-frequency GPS users. IEEE Transactions on
     Aerospace and Electronic Systems, v.AES-23, n.3, p.325-331.
+    :param time: Time in UTC (datetime64)
     :param rx_lat: Receiver's latitude WGS84 (°)
     :param rx_lon: Receiver's longitude WGS84 (°)
-    :param tow: GPS time of week (s)
     :param sv_elevation: Elevation of the satellite (rad)
     :param sv_azimuth: Azimuth of the satellite (rad)
+    :param signal_freq: Signal frequency (Hz)
     :param alpha: Broadcasted ephemeris parameters alpha
     :param beta: Broadcasted ephemeris parameters beta
     :return: Ionospheric delay (m)
     """
     # Convert to semicircles
-    rx_lat = math.radians(rx_lat)
-    rx_lon = math.radians(rx_lon)
+    rx_lat = np.radians(rx_lat)
+    rx_lon = np.radians(rx_lon)
+    sv_elevation = sv_elevation / np.pi
 
     # 1. Calculate the earth-centred angle (elevation in semicircles).
     earth_centered_angle = (0.0137 / (sv_elevation + 0.11)) - 0.022
 
     # 2. Compute the latitude of the Ionospheric Pierce Point (IPP)
-    ipp_lat = rx_lat + earth_centered_angle * math.cos(sv_azimuth)
-    if abs(ipp_lat) > 0.416:
-        ipp_lat = math.copysign(0.416, ipp_lat)
+    ipp_lat = rx_lat + earth_centered_angle * np.cos(sv_azimuth)
+    ipp_lat = np.where(abs(ipp_lat) > 0.416, np.copysign(0.416, ipp_lat), ipp_lat)
 
     # 3. Compute the longitude of the IPP.
-    ipp_lon = rx_lon + ((earth_centered_angle * math.sin(sv_azimuth)) / math.cos(ipp_lat))
+    ipp_lon = rx_lon + ((earth_centered_angle * np.sin(sv_azimuth)) / np.cos(ipp_lat))
 
     # 4. Find the geomagnetic latitude of the IPP.
-    ipp_mag_lat = ipp_lat + 0.064 * math.cos(ipp_lon - 1.617)
+    ipp_mag_lat = ipp_lat + 0.064 * np.cos(ipp_lon - 1.617)
 
     # 5. Find the local time (in seconds) at the ionospheric pierce point.
-    t_loc = (43200 * ipp_lon + tow) % 86400
+    t_loc = 43200 * ipp_lon + convert.time.utc_to_tow(time, gnss_id="gps") / np.timedelta64(1, "s")
+    t_loc = np.where(t_loc >= 86400, t_loc - 86400, t_loc)
+    t_loc = np.where(t_loc < 0, t_loc + 86400, t_loc)
 
     # 6. Compute the amplitude of ionospheric delay.
     A_i = 0
     for i in range(4):
         A_i += alpha[i] * (ipp_mag_lat ** i)
-    if A_i < 0:
-        A_i = 0
+    A_i = np.where(A_i < 0, 0, A_i)
 
     # 7. Compute the period of ionospheric delay.
     P_i = 0
     for i in range(4):
         P_i += beta[i] * (ipp_mag_lat ** i)
-    if P_i < 72000:
-        P_i = 72000
+    P_i = np.where(P_i < 72000, 72000, P_i)
 
     # 8. Compute the phase of ionospheric delay.
-    X_i = 2 * math.pi * (t_loc - 50400) / P_i
+    X_i = 2 * np.pi * (t_loc - 50400) / P_i
 
     # 9. Compute the slant factor.
     F = 1 + 16 * (0.53 - sv_elevation) ** 3
 
     # 10. Compute the ionospheric time delay.
-    if abs(X_i) < 1.57:
-        delay = (5e-9 + A_i * (1 - (X_i ** 2) / 2 + (X_i ** 4) / 24)) * F
-    else:
-        delay = 5e-9 * F
+    delay = np.where(abs(X_i) < 1.57, (5e-9 + A_i * (1 - (X_i ** 2) / 2 + (X_i ** 4) / 24)) * F, 5e-9 * F)
+
+    # 11 Convert to sinal frequency
+    delay = (const.band_frequency["l1"]/signal_freq) ** 2 * delay
 
     return delay * const.C
 
@@ -176,11 +266,12 @@ def compute_nequick():
     https://gssc.esa.int/navipedia/index.php?title=NeQuick_Ionospheric_Model
     :return:
     """
-    print("NeQuick not yet implemented")
-    return -1
+    raise NotImplementedError("NeQuick ionospheric model is not yet implemented. "
+                              "Please use bits.corrections.compute_klobuchar() instead.")
 
 
-def compute_weather_param(rx_lat: float, day_of_year: int, param_name: Literal["P", "T", "e", "beta", "lambda"]) -> float:
+def compute_weather_param(rx_lat: np.ndarray, day_of_year: np.ndarray,
+                          param_name: Literal["P", "T", "e", "beta", "lambda"]) -> np.ndarray:
     """
     Compute average and seasonal variations of the weather parameters at the receiver latitude linearly interpolated
     from mean weather data.
@@ -190,40 +281,47 @@ def compute_weather_param(rx_lat: float, day_of_year: int, param_name: Literal["
     :param param_name: Name of the parameter ("P", "T", "e", "beta", "lambda")
     :return: Average weather parameter
     """
-    if rx_lat > 0:
-        Dmin = 28
-    else:
-        Dmin = 211
+    Dmin = np.where(rx_lat < 0, 28, 211)
+    rx_lat = np.abs(rx_lat)
 
     # Get closest average meteo observation
     param0_name = f"{param_name}0"
     deltaparam_name = f"delta{param_name}"
-    if rx_lat <= const.WEATHER_PARAM["latitude"][0]:
-        param0 = const.WEATHER_PARAM[param0_name][0]
-        deltaparam = const.WEATHER_PARAM[deltaparam_name][0]
-    elif rx_lat >= const.WEATHER_PARAM["latitude"][-1]:
-        param0 = const.WEATHER_PARAM[param0_name][-1]
-        deltaparam = const.WEATHER_PARAM[deltaparam_name][-1]
-    else:
-        lat_list = const.WEATHER_PARAM["latitude"]
-        for i in range(len(lat_list) - 1):
-            if lat_list[i] <= rx_lat <= lat_list[i + 1]:
-                break
 
-        # Extrapolate average meteo parameter
-        start0 = (lat_list[i], const.WEATHER_PARAM[param0_name][i])
-        stop0 = (lat_list[i+1], const.WEATHER_PARAM[param0_name][i+1])
-        param0 = start0[1] + (stop0[1] - start0[1]) * ((rx_lat - start0[0]) / (stop0[0] - start0[0]))
-        deltastart = (lat_list[i], const.WEATHER_PARAM[deltaparam_name][i])
-        deltastop = (lat_list[i + 1], const.WEATHER_PARAM[deltaparam_name][i + 1])
-        deltaparam = (deltastart[1]
-                      + (deltastop[1] - deltastart[1]) * ((rx_lat - deltastart[0]) / (deltastop[0] - deltastart[0])))
+    # Extrapolate average meteo parameter
+    lat_list = const.WEATHER_PARAM["latitude"]
+    lat_index = np.searchsorted(lat_list, rx_lat, side="left")
+    # Ensure lat_index is in table
+    lat_index = np.where(lat_index>=len(const.WEATHER_PARAM["latitude"]), len(const.WEATHER_PARAM["latitude"])-1, lat_index)
 
-    weather_param = param0 - deltaparam * math.cos(2 * math.pi * (day_of_year - Dmin)/365.25)
+    lat_left = np.array(lat_list)[lat_index - 1]
+    try:
+        lat_right = np.array(lat_list)[lat_index]
+    except:
+        print("gneh")
+
+    param_left = np.array(const.WEATHER_PARAM[param0_name])[lat_index - 1]
+    param_right = np.array(const.WEATHER_PARAM[param0_name])[lat_index]
+
+    deltaparam_left = np.array(const.WEATHER_PARAM[deltaparam_name])[lat_index - 1]
+    deltaparam_right = np.array(const.WEATHER_PARAM[deltaparam_name])[lat_index]
+
+    param0 = param_left + (param_right - param_left) * ((rx_lat - lat_left) / (lat_right - lat_left))
+    deltaparam = deltaparam_left + (deltaparam_right - deltaparam_left) * ((rx_lat - lat_left) / (lat_right - lat_left))
+
+    # Default values for lat out of table
+    param0 = np.where(rx_lat <= const.WEATHER_PARAM["latitude"][0], const.WEATHER_PARAM[param0_name][0], param0)
+    deltaparam = np.where(rx_lat <= const.WEATHER_PARAM["latitude"][0], const.WEATHER_PARAM[deltaparam_name][0], deltaparam)
+
+    param0 = np.where(rx_lat >= const.WEATHER_PARAM["latitude"][-1], const.WEATHER_PARAM[param0_name][-1], param0)
+    deltaparam = np.where(rx_lat >= const.WEATHER_PARAM["latitude"][-1], const.WEATHER_PARAM[deltaparam_name][-1], deltaparam)
+
+    weather_param = param0 - deltaparam * np.cos(2 * np.pi * (day_of_year - Dmin)/365.25)
 
     return weather_param
 
-def compute_tropo_corrections(rx_lat: float, rx_alt: float, day_of_year: int, sv_elevation: float) -> float:
+def compute_tropo_corrections(rx_lat: np.ndarray, rx_alt: np.ndarray, day_of_year: np.ndarray,
+                              sv_elevation: np.ndarray) -> np.ndarray:
     """
     Compute tropospheric corrections for a receiver at day "day_of_year" for a satellite at elevation "sv_elevation".
     source: https://gssc.esa.int/navipedia/index.php?title=Tropospheric_Delay
@@ -233,10 +331,11 @@ def compute_tropo_corrections(rx_lat: float, rx_alt: float, day_of_year: int, sv
     :param sv_elevation: Elevation of the satellite (rad)
     :return: Tropospheric delay (m)
     """
-    if rx_alt < 0 or rx_alt>1000:
-        rx_alt = 0
+    rx_alt = np.where(rx_alt < 0, 0.0, rx_alt)
+    rx_alt = np.where(rx_alt > 1000, 1000.0, rx_alt)
+
     # 1. Compute obliquity factor, valid for satellite elevation angles over 5 degrees
-    M = 1.001/math.sqrt(0.002001 + math.sin(sv_elevation)**2)
+    M = 1.001/np.sqrt(0.002001 + np.sin(sv_elevation)**2)
 
     # 2. Estimate weather parameters
     w_P = compute_weather_param(rx_lat, day_of_year, "P")
@@ -265,24 +364,31 @@ def compute_tropo_corrections(rx_lat: float, rx_alt: float, day_of_year: int, sv
     return tropo_delay
 
 
-def get_atmospheric_corrections(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> pd.DataFrame:
+def get_atmospheric_corrections(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame, pd_gnss_pvt: pd.DataFrame)\
+        -> pd.DataFrame:
     """
     Correct pseudoranges from pd_gnss_raw with ionospheric and tropospheric corrections using an approximate position
     from pd_gnss_pvt.
     sources :   https://gssc.esa.int/navipedia/index.php?title=Ionospheric_Delay
                 https://gssc.esa.int/navipedia/index.php?title=Tropospheric_Delay
     :param pd_gnss_raw: GNSS raw dataframe from BITS parser
+    :param pd_ephemeris: ephemeris dataframe from BITS parser
     :param pd_gnss_pvt: GNSS pvt dataframe
-    :return: GNSS pvt dataframe with corrected pseudoranges
+    :return: GNSS raw dataframe with corrected pseudoranges
     """
-    raw_required_columns = ["time", "pr_m", "gnss_id", "sv_id", "elevation_rad", "azimuth_rad", "ionospheric_param"]
+    raw_required_columns = ["time", "pr_m", "gnss_id", "sv_id", "elevation_rad", "azimuth_rad", "frequency_hz"]
     pvt_required_columns = ["time", "lat", "lon", "alt"]
+    ephem_klo_columns = ["klo_a0", "klo_a1", "klo_a2", "klo_a3", "klo_b0", "klo_b1", "klo_b2", "klo_b3"]
 
-    if not check_dataframe(pd_gnss_raw, raw_required_columns):
+    # Check dataframes
+    if not utils.check_dataframe(pd_gnss_raw, raw_required_columns):
         warnings.warn("Missing raw data, cannot compute atmospheric correction.")
         return pd_gnss_raw
-    if not check_dataframe(pd_gnss_pvt, pvt_required_columns):
+    if not utils.check_dataframe(pd_gnss_pvt, pvt_required_columns):
         warnings.warn("Missing PVT data, cannot compute atmospheric correction.")
+        return pd_gnss_raw
+    if not utils.check_dataframe(pd_ephemeris, ephem_klo_columns):
+        warnings.warn("Missing Klobuchar parameters in ephemeris, cannot compute atmospheric correction.")
         return pd_gnss_raw
 
     # Check for already existing corrections
@@ -291,37 +397,40 @@ def get_atmospheric_corrections(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataF
     elif {"atm_corr_m"}.issubset(pd_gnss_raw.columns):
         pd_gnss_raw["corr_pr_m"] += pd_gnss_raw["atm_corr_m"]
 
-    # Loop over all timestamps
-    timestamp_list = pd_gnss_raw["time"].unique().tolist()
-    for timestamp in timestamp_list:
-        if timestamp in pd_gnss_pvt["time"].values:
-            #  Get raw and pvt at timestamp
-            pd_gnss_raw_at_timestamp = pd_gnss_raw[pd_gnss_raw["time"] == timestamp].copy()
-            pd_gnss_pvt_at_timestamp = pd_gnss_pvt[pd_gnss_pvt["time"] == timestamp]
-            if len(pd_gnss_pvt_at_timestamp) != 1:
-                txt = f"Position estimate has several possibilities at timestamp {timestamp}. Using first instance to compute atmospheric corrections."
-                warnings.warn(txt, UserWarning)
-            pd_ser_gnss_pvt_at_timestamp = pd_gnss_pvt_at_timestamp.iloc[0]
+    # Get data from pvt and ephemeris
+    # Sort
+    pd_gnss_raw = pd_gnss_raw.sort_values("time").reset_index(drop=True)
+    pd_gnss_pvt = pd_gnss_pvt.sort_values("time").reset_index(drop=True)
+    # Get data from PVT
+    pd_gnss_raw = pd.merge_asof(
+        pd_gnss_raw,
+        pd_gnss_pvt[pvt_required_columns],
+        on="time",
+        direction="nearest",
+        suffixes=("_raw", "")
+    )
+    # Get data from ephemeris
+    pd_gnss_raw = utils.get_data_from_ephemeris(pd_gnss_raw, pd_ephemeris, ephem_klo_columns)
 
-            # 1. Compute ionospheric delays
-            pd_gnss_raw_at_timestamp["iono_corr_m"] = pd_gnss_raw_at_timestamp.apply(
-                lambda row: compute_klobuchar(pd_ser_gnss_pvt_at_timestamp["lat"],
-                                              pd_ser_gnss_pvt_at_timestamp["lon"], convert.time.utc_to_tow(timestamp, gnss_id="gps")/np.timedelta64(1, "s"),
-                                              row["elevation_rad"], row["azimuth_rad"],
-                                              row["ionospheric_param"][:4], row["ionospheric_param"][4:]), axis=1)
-            pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["iono_corr_m"]] = \
-                pd_gnss_raw_at_timestamp["iono_corr_m"]
+    # 1. Compute ionospheric delays
+    # Compute Klobuchar corrections
+    pd_gnss_raw["iono_corr_m"] = (
+        compute_klobuchar(time=pd_gnss_raw["time"], signal_freq=pd_gnss_raw["frequency_hz"],
+                          rx_lat=pd_gnss_raw["lat"], rx_lon=pd_gnss_raw["lon"],
+                          sv_elevation=pd_gnss_raw["elevation_rad"], sv_azimuth=pd_gnss_raw["azimuth_rad"],
+                          alpha=(pd_gnss_raw["klo_a0"], pd_gnss_raw["klo_a1"],
+                                 pd_gnss_raw["klo_a2"], pd_gnss_raw["klo_a3"]),
+                          beta=(pd_gnss_raw["klo_b0"], pd_gnss_raw["klo_b1"],
+                                pd_gnss_raw["klo_b2"], pd_gnss_raw["klo_b3"])))
 
-            # 2. Compute tropospheric delays
-            pd_gnss_raw_at_timestamp["tropo_corr_m"] = pd_gnss_raw_at_timestamp.apply(
-                lambda row: compute_tropo_corrections(pd_ser_gnss_pvt_at_timestamp["lat"],
-                                                      pd_ser_gnss_pvt_at_timestamp["alt"],
-                                                      convert.time.day_of_year(timestamp), row["elevation_rad"]), axis=1)
-            pd_gnss_raw.loc[pd_gnss_raw_at_timestamp.index, ["tropo_corr_m"]] = \
-                pd_gnss_raw_at_timestamp["tropo_corr_m"]
+    # 2. Compute tropospheric delays
+    pd_gnss_raw["tropo_corr_m"] = compute_tropo_corrections(rx_lat=pd_gnss_raw["lat"], rx_alt=pd_gnss_raw["alt"],
+                                                            day_of_year=convert.time.day_of_year(pd_gnss_raw["time"]),
+                                                            sv_elevation=pd_gnss_raw["elevation_rad"])
 
     # 3. Correct pseudoranges
-    pd_gnss_raw["atm_corr_m"] = pd_gnss_raw["iono_corr_m"] + pd_gnss_raw["tropo_corr_m"]
+    pd_gnss_raw["atm_corr_m"] = pd_gnss_raw["iono_corr_m"].fillna(0) + pd_gnss_raw["tropo_corr_m"].fillna(0)
     pd_gnss_raw["corr_pr_m"] -= pd_gnss_raw["atm_corr_m"]
 
-    return pd_gnss_raw
+    return pd_gnss_raw.drop(pvt_required_columns[1:]+ephem_klo_columns, axis="columns", errors="ignore")
+

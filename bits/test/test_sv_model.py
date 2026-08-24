@@ -12,120 +12,68 @@ __copyright__ = "IKOS"
 __date__ = "18/02/2025"
 __version__ = "0.0.1"
 
-import os
 import pandas as pd
-import numpy as np
 from bits.src.sv_model import get_sv_states
 from bits.src import const, convert, parse
+from bits.src.utils import get_example_data_filepath, fast_parse
 
+required_precision = 1 # m
 
-# Using skydel's sv state references, part 2. of sv_model.get_sv_states worsen the results. Without this part,
-# millimetric precision is expected
-required_precision = 20  # m
+# Ephemeris
+ephem_filepath_list = get_example_data_filepath("ephemeris", rover_type="sv")
+ephem_list = []
+for filepath in ephem_filepath_list:
+    ephem_list.append(fast_parse(filepath, parse.ephemeris.rinex))
+ephem_df = pd.concat(ephem_list)
+# Get rid of unhealthy satellites
+ephem_df = ephem_df[ephem_df["healthy"] == True]
 
-start_time = np.datetime64("2023-09-14T12:00:00", "ns")
+# Ground truth
+gt_df = fast_parse(get_example_data_filepath("raw", rover_type="sv")[0], parse.raw.skydel_folder)
+tof = (1e9 * gt_df["corr_pr_m"] / const.C).astype("timedelta64[ns]")
+# Compensate for earth's rotation to get SV state at emission
+gt_df[["x_sv_m", "y_sv_m", "z_sv_m"]] = pd.Series(convert.space.rotate_ecef(gt_df["x_sv_m"], gt_df["y_sv_m"],
+                                                                            gt_df["z_sv_m"], tof))
 
-test_data_directory_path = os.path.join(os.getcwd(), "bits", "test", "test_data")
-gps_ephem_filepath = os.path.join(test_data_directory_path, "rinex_nav.rnx")
-gal_ephem_filepath = os.path.join(test_data_directory_path, "SkydelRINEX_S_2023257120_600S_EN.rnx")
-skydel_raw_directory_path = os.path.join(test_data_directory_path, "skydel_raw")
+# Raw
+# SV will be computed based on a dataframe with the same timestamps and satellites than the Ground truth
+raw_df = gt_df.copy().drop(columns=["x_sv_m", "y_sv_m", "z_sv_m"])
 
-pd_gps_ephemeris = parse.ephemeris.rinex(gps_ephem_filepath)
-pd_gal_ephemeris = parse.ephemeris.rinex(gal_ephem_filepath)
-pd_ephemeris = pd.concat([pd_gps_ephemeris, pd_gal_ephemeris], ignore_index=True)
+def test_galileo():
+    compute_sv_state("gal")
 
-pd_full_computed = pd.DataFrame()
-for filename in os.listdir(skydel_raw_directory_path):
-    raw_filepath = os.path.join(skydel_raw_directory_path, filename)
+def test_gps():
+    compute_sv_state("gps")
 
-    pd_gnss_raw = parse.raw.skydel(raw_filepath)
+def test_glonass():
+    compute_sv_state("glo")
 
-    pd_gnss_raw_to_be_computed = pd_gnss_raw.copy().drop(columns=["x_sv_m", "y_sv_m", "z_sv_m"])
+def test_beidou():
+    compute_sv_state("bei")
 
-    pd_computed_sv_states = get_sv_states(pd_gnss_raw_to_be_computed, pd_ephemeris)
-    if {"corr_pr_m"}.issubset(pd_computed_sv_states.columns):
-        pr_column_name = "corr_pr_m"
-    else:
-        pr_column_name = "pr_m"
-    tof = (1e9 *pd_computed_sv_states[pr_column_name] / const.C).astype("timedelta64[ns]")
-    pd_computed_sv_states[["x_sv_m", "y_sv_m", "z_sv_m"]] = (
-        pd.Series(convert.space.rotate_ecef(pd_computed_sv_states["x_sv_m"], pd_computed_sv_states["y_sv_m"],
-                                            pd_computed_sv_states["z_sv_m"], -tof)))
-    #pd_computed_sv_states[["x_sv_m", "y_sv_m", "z_sv_m"]] = \
-    #    pd_computed_sv_states.apply(
-    #        lambda row: pd.Series(rotate_ecef(row["x_sv_m"], row["y_sv_m"], row["z_sv_m"], -row["delta_time"])), axis=1)
+def compute_sv_state(gnss_id:str, verbose:bool = False):
+    df = raw_df[raw_df["gnss_id"] == gnss_id]
+    df = get_sv_states(df, pd_ephemeris=ephem_df)
 
-    pd_computed_sv_states["x_diff"] = pd_computed_sv_states["x_sv_m"] - pd_gnss_raw["x_sv_m"]
-    pd_computed_sv_states["y_diff"] = pd_computed_sv_states["y_sv_m"] - pd_gnss_raw["y_sv_m"]
-    pd_computed_sv_states["z_diff"] = pd_computed_sv_states["z_sv_m"] - pd_gnss_raw["z_sv_m"]
+    comparison_df = df.merge(gt_df, on=["time", "sv_id"], suffixes=("", "_gt"))
+    x_diff = comparison_df["x_sv_m"] - comparison_df["x_sv_m_gt"]
+    y_diff = comparison_df["y_sv_m"] - comparison_df["y_sv_m_gt"]
+    z_diff = comparison_df["z_sv_m"] - comparison_df["z_sv_m_gt"]
 
-    pd_full_computed = pd.concat([pd_full_computed, pd_computed_sv_states], axis=0)
+    report = (f"Current precision is x{int(x_diff.abs().max())}m, y{int(y_diff.abs().max())}m, z{int(z_diff.abs().max())}m "
+              f"(mean = {int(x_diff.abs().mean())}, {int(y_diff.abs().mean())}, {int(z_diff.abs().mean())}), target precision is {required_precision}m")
 
+    if verbose:
+        print(f"Precision report for sv model {gnss_id}")
+        print(report)
 
-def test_gps_state_precision():
-    gps_pd_computed = pd_full_computed[pd_full_computed["gnss_id"] == "gps"]
-
-    max_x_diff = gps_pd_computed['x_diff'].abs().max()
-    mean_x_diff = gps_pd_computed['x_diff'].abs().mean()
-    max_y_diff = gps_pd_computed['y_diff'].abs().max()
-    mean_y_diff = gps_pd_computed['y_diff'].abs().mean()
-    max_z_diff = gps_pd_computed['z_diff'].abs().max()
-    mean_z_diff = gps_pd_computed['z_diff'].abs().mean()
-    assert max_x_diff < required_precision and max_y_diff < required_precision and max_z_diff < required_precision, \
-        f"Precision requirement is not met for GPS states. " \
-        f"Current precision is x{int(max_x_diff)}m, y{int(max_y_diff)}m, z{int(max_z_diff)}m " \
-        f"(mean = {int(mean_x_diff)}, {int(mean_y_diff)}, {int(mean_z_diff)}), target precision is {required_precision}m"
-
-
-def test_galileo_state_precision():
-    gal_pd_computed = pd_full_computed[pd_full_computed["gnss_id"] == "gal"]
-
-    max_x_diff = gal_pd_computed['x_diff'].abs().max()
-    mean_x_diff = gal_pd_computed['x_diff'].abs().mean()
-    max_y_diff = gal_pd_computed['y_diff'].abs().max()
-    mean_y_diff = gal_pd_computed['y_diff'].abs().mean()
-    max_z_diff = gal_pd_computed['z_diff'].abs().max()
-    mean_z_diff = gal_pd_computed['z_diff'].abs().mean()
-    assert max_x_diff < required_precision and max_y_diff < required_precision and max_z_diff < required_precision, \
-        f"Precision requirement is not met for Galileo states. " \
-        f"Current precision is x{int(max_x_diff)}m, y{int(max_y_diff)}m, z{int(max_z_diff)}m " \
-        f"(mean = {int(mean_x_diff)}, {int(mean_y_diff)}, {int(mean_z_diff)}), target precision is {required_precision}m"
-
-########################################################################################################################
-# The following tests are not yet available. No testdata are available yet for those.
-# Beidou has weirdly bad precision
-def available_soon_test_beidou_state_precision():
-    bei_pd_computed = pd_full_computed.copy()
-    bei_pd_computed = bei_pd_computed[bei_pd_computed["gnss_id"] == "bei"]
-
-    max_x_diff = bei_pd_computed['x_diff'].abs().max()
-    mean_x_diff = bei_pd_computed['x_diff'].abs().mean()
-    max_y_diff = bei_pd_computed['y_diff'].abs().max()
-    mean_y_diff = bei_pd_computed['y_diff'].abs().mean()
-    max_z_diff = bei_pd_computed['z_diff'].abs().max()
-    mean_z_diff = bei_pd_computed['z_diff'].abs().mean()
-    assert max_x_diff < required_precision and max_y_diff < required_precision and max_z_diff < required_precision, \
-        f"Precision requirement is not met for Beidou states. " \
-        f"Current precision is x{int(max_x_diff)}m, y{int(max_y_diff)}m, z{int(max_z_diff)}m " \
-        f"(mean = {int(mean_x_diff)}, {int(mean_y_diff)}, {int(mean_z_diff)}), target precision is {required_precision}m"
-
-# Glonass has weirdly veeeeery bad precision
-def available_soon_test_glonass_state_precision():
-    glo_pd_computed = pd_full_computed.copy()
-    glo_pd_computed = glo_pd_computed[glo_pd_computed["gnss_id"] == "glo"]
-
-    max_x_diff = glo_pd_computed['x_diff'].abs().max()
-    mean_x_diff = glo_pd_computed['x_diff'].abs().mean()
-    max_y_diff = glo_pd_computed['y_diff'].abs().max()
-    mean_y_diff = glo_pd_computed['y_diff'].abs().mean()
-    max_z_diff = glo_pd_computed['z_diff'].abs().max()
-    mean_z_diff = glo_pd_computed['z_diff'].abs().mean()
-    assert max_x_diff < required_precision and max_y_diff < required_precision and max_z_diff < required_precision, \
-        f"Precision requirement is not met for Glonass states. " \
-        f"Current precision is x{int(max_x_diff)}m, y{int(max_y_diff)}m, z{int(max_z_diff)}m " \
-        f"(mean = {int(mean_x_diff)}, {int(mean_y_diff)}, {int(mean_z_diff)}), target precision is {required_precision}m"
+    assert (x_diff.abs().max() < required_precision and y_diff.abs().max() < required_precision
+            and z_diff.abs().max() < required_precision) and len(comparison_df) > 0, \
+        f"Precision requirement is not met for {gnss_id}. \n{report}"
 
 
 if __name__ == "__main__":
-    test_gps_state_precision()
-    test_galileo_state_precision()
+    #test_galileo()
+    #test_gps()
+    #test_glonass()
+    test_beidou()

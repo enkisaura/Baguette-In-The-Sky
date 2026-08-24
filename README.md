@@ -9,30 +9,31 @@ A simple python GNSS library.
 ### BITS ephemeris dataframe
 Ephemeris parameters that can be found in a rinex nav file.
 
-| Name | Description | Unit | Type |
-|------|-------------|------|------|
-| time | Receiver timestamp | | GnssTimestamp |
-| toe | Reference time, ephemeris parameters | second | float |
-| sqrta | Square root of the semi-major axis | metre^1/2 | float |
-| e | Eccentricity | | float |
-| i0 | Inclination angle at reference time | radian(semicircles) | float |
-| idot | Rate of change of inclination | radian(semicircles)/second | float |
-| omega0 | Longitude of ascending node at reference time | radian(semicircles) | float |
-| omega | Argument of perigee | radian(semicircles) | float |
-| m0 | Mean anomaly at reference time | radian(semicircles) | float |
-| omegadot | Rate of change of right ascension | radian(semicircles)/second | float |
-| deltan | Mean motion difference from computed value | radian(semicircles)/second | float |
-| cuc | Amplitude of the cosine harmonic correction term to the argument of latitude | radian | float |
-| cus | Amplitude of the sine harmonic correction term to the argument of latitude | radian | float |
-| crc | Amplitude of the cosine harmonic correction term to the orbit radius | metre | float |
-| crs | Amplitude of the sine harmonic correction term to the orbit radius | metre | float |
-| cic | Amplitude of the cosine harmonic correction term to the angle of inclination | radian | float |
-| cis | Amplitude of the sine harmonic correction term to the angle of inclination | radian | float |
-| clock_bias | Satellite clock bias | second | float |
-| clock_drift | Satellite clock drift | second/second | float |
-| clock_drift_rate | Satellite clock drift rate | second/second² | float |
-| tgd | Time Group Delay | second | float |
-| ionospheric_param | 8 parameters to compute ionospheric corrections | | list[float] |
+| Name              | Description                                                                  | Unit                       | Type          |
+|-------------------|------------------------------------------------------------------------------|----------------------------|---------------|
+| time              | Receiver timestamp                                                           |                            | GnssTimestamp |
+| time_of_ephemeris | Reference time, ephemeris parameters                                         | second                     | float         |
+| sqrta             | Square root of the semi-major axis                                           | metre^1/2                  | float         |
+| e                 | Eccentricity                                                                 |                            | float         |
+| i0                | Inclination angle at reference time                                          | radian(semicircles)        | float         |
+| idot              | Rate of change of inclination                                                | radian(semicircles)/second | float         |
+| omega0            | Longitude of ascending node at reference time                                | radian(semicircles)        | float         |
+| omega             | Argument of perigee                                                          | radian(semicircles)        | float         |
+| m0                | Mean anomaly at reference time                                               | radian(semicircles)        | float         |
+| omegadot          | Rate of change of right ascension                                            | radian(semicircles)/second | float         |
+| deltan            | Mean motion difference from computed value                                   | radian(semicircles)/second | float         |
+| cuc               | Amplitude of the cosine harmonic correction term to the argument of latitude | radian                     | float         |
+| cus               | Amplitude of the sine harmonic correction term to the argument of latitude   | radian                     | float         |
+| crc               | Amplitude of the cosine harmonic correction term to the orbit radius         | metre                      | float         |
+| crs               | Amplitude of the sine harmonic correction term to the orbit radius           | metre                      | float         |
+| cic               | Amplitude of the cosine harmonic correction term to the angle of inclination | radian                     | float         |
+| cis               | Amplitude of the sine harmonic correction term to the angle of inclination   | radian                     | float         |
+| clock_bias        | Satellite clock bias                                                         | second                     | float         |
+| clock_drift       | Satellite clock drift                                                        | second/second              | float         |
+| clock_drift_rate  | Satellite clock drift rate                                                   | second/second²             | float         |
+| tgd               | Time Group Delay                                                             | second                     | float         |
+| ionospheric_param | 8 parameters to compute ionospheric corrections                              |                            | list[float]   |
+| healthy           | SV is reported healthy and can be used                                       |                            | bool          |
 
 ### BITS raw dataframe
 Raw measurements. Can also contain BITS ephemeris dataframe.
@@ -45,6 +46,7 @@ Raw measurements. Can also contain BITS ephemeris dataframe.
 | corr_pr_m          | Corrected pseudorange                                                      | metre         | float        |
 | pr_rate_mps        | Pseudorange rate                                                           | metre/second  | float        |
 | doppler_hz         | Doppler shift                                                              | 1/second      | float        |
+| frequency_hz       | Signal frequency                                                           | 1/second      | float        |
 | sv_id              | Satellite PRN number                                                       |               | int          |
 | gnss_id            | GNSS constellation ID (BITS normalized, cf normalize_gnss_constellation()) |               | str          |
 | x_sv_m             | X ECEF coordinate of the satellite                                         | metre         | float        |

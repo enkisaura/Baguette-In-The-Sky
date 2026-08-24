@@ -10,86 +10,90 @@ __copyright__ = "IKOS"
 __date__ = "2025-06-06"
 __version__ = "0.0.1"
 
-import os
 from bits.src import parse
-from bits.src.spp import *
-from bits.src.convert.space_conversion import ecef_to_enu
+from bits.src.single_point_positioning import *
+from bits.src.utils import get_example_data_filepath, fast_parse
 
-required_precision = 15 # m
-required_precision_speed = 0.2 # m/s
-az_el_required_precision = 1e-2  # rad
-gt = (45.7615208,-1.1411692,0)
-gt_speed = (0, 0, 0)
+required_pos_precision = 5 # m
+required_speed_precision = 1 # mps
 
-test_data_directory_path = os.path.join(os.getcwd(), "bits", "test", "test_data")
-raw_filepath = os.path.join(test_data_directory_path, "gnss_raw", "rx1_1")
-az_el_ephem_filepath = os.path.join(test_data_directory_path, "rinex_nav.rnx")
-az_el_skydel_raw_directory_path = os.path.join(test_data_directory_path, "skydel_raw")
-ephem2_filepath = os.path.join(test_data_directory_path, "TLSG00FRA_R_20261240000_01D_MN.rnx")
-raw2_filepath = os.path.join(test_data_directory_path, "gnss_raw", "XXXX00FRA_R_20261241730_00U_01S_MO.rnx")
-nmea_filepath = os.path.join(test_data_directory_path, "20261241730_nmea.txt")
+# Fixed
+# Ground truth
+pos_gt = fast_parse(get_example_data_filepath("pvt")[0], parse.pvt.rmc)
 
-pd_raw = parse.raw.micdrop(raw_filepath)
-pd_ephemeris2 = parse.ephemeris.rinex(ephem2_filepath)
-pd_raw2 = parse.raw.rinex(raw2_filepath)
-nmea_pd = parse.pvt.gga(nmea_filepath)
+# Ephemeris
+ephem_filepath_list = get_example_data_filepath("ephemeris", rover_type="sv")
+ephem_list = []
+for filepath in ephem_filepath_list:
+    ephem_list.append(fast_parse(filepath, parse.ephemeris.rinex))
+ephem_df = pd.concat(ephem_list)
+# Add missing klobuchar values
+klo_cols = ["klo_a0", "klo_a1", "klo_a2", "klo_a3", "klo_b0", "klo_b1", "klo_b2", "klo_b3"]
+klo_values = fast_parse(get_example_data_filepath("ephemeris")[0], parse.ephemeris.rinex)[klo_cols].iloc[0]
+ephem_df[klo_cols] = klo_values[klo_cols].values
 
-def test_glo_pos_estimate():
-    pos_estimate(gnss_id="glo")
+# Raw
+pos_raw_df = fast_parse(get_example_data_filepath("raw", rover_type="sv")[0], parse.raw.skydel_folder)
+# Only keep measurements
+pos_raw_df = pos_raw_df[["time", "sv_id", "gnss_id", "prn_id", "pr_m", "pr_rate_mps", "doppler_hz", "frequency_hz"]]
+pos_raw_df = pos_raw_df[pos_raw_df["time"].isin(pos_gt["time"])] # Only keep timestamp with an existing ground_truth
 
-def test_gal_pos_estimate():
-    pos_estimate(gnss_id="gal")
-
-def test_gps_pos_estimate():
-    pos_estimate(gnss_id="gps")
-
-def test_bei_pos_estimate():
-    pos_estimate(gnss_id="bei")
-
-def test_multi_constellation_pos_estimate():
-    pos_estimate()
-
-def pos_estimate(gnss_id:str|None = None):
-    if gnss_id is None:
-        constellation_raw_pd = pd_raw2.copy()
-    else:
-        constellation_raw_pd = pd_raw2[pd_raw2["gnss_id"] == gnss_id].copy()
-    pd_gnss_pvt, _ = get_position_estimate(constellation_raw_pd, pd_ephemeris=pd_ephemeris2)
-
-    gt_ecef = (nmea_pd["x_rx_m"].iloc[100], nmea_pd["y_rx_m"].iloc[100], nmea_pd["z_rx_m"].iloc[100])
-    pd_gnss_pvt["np_rx_m"] = pd_gnss_pvt.apply(lambda row: np.array([row["x_rx_m"], row["y_rx_m"], row["z_rx_m"]]), axis=1)
-    pd_gnss_pvt["np_rx_enu_m"] = pd_gnss_pvt.apply(lambda row: ecef_to_enu(gt_ecef, row["np_rx_m"]), axis=1)
-    pd_gnss_pvt["h_error_m"] = pd_gnss_pvt.apply(lambda row: np.linalg.norm(row["np_rx_enu_m"][:2]), axis=1)
-    mean_error = pd_gnss_pvt['h_error_m'].mean()
-    max_error = pd_gnss_pvt['h_error_m'].max()
-
-    txt = f"Position estimate does not meet the expected accuracy. Expected: {required_precision}m, estimated: mean {mean_error}m, max {max_error}m."
-    assert (pd_gnss_pvt['h_error_m'] < required_precision).all(), txt
+# Circle
+receiver_gt = fast_parse(get_example_data_filepath("pvt", rover_type="circular")[0], parse.pvt.rmc)
+receiver_raw_df = fast_parse(get_example_data_filepath("raw", rover_type="circular")[0], parse.raw.rinex)
 
 
-def test_azimuth_elevation():
-    pd_az_el_raw = pd.DataFrame()
-    for filename in os.listdir(az_el_skydel_raw_directory_path):
-        raw_filepath = os.path.join(az_el_skydel_raw_directory_path, filename)
-        pd_az_el_raw = pd.concat([pd_az_el_raw, parse.raw.skydel(raw_filepath).iloc[:2]], axis=0)
-    pd_az_el_raw = pd_az_el_raw[pd_az_el_raw["gnss_id"] == "gps"].reset_index()
-    pd_az_el_pvt, _ = get_approx_position_estimate(pd_az_el_raw, convergence_tolerance=100)
-    pd_az_el_raw = get_sv_el_az(pd_az_el_raw, pd_az_el_pvt)
-    pd_az_el_raw["el_diff"] = pd_az_el_raw["elevation_rad"] - pd_az_el_raw["Body Elevation (rad)"]
-    pd_az_el_raw["az_diff"] = pd_az_el_raw["azimuth_rad"] - pd_az_el_raw["Body Azimuth (rad)"]
-    mean_error = pd_az_el_raw["el_diff"].mean()
-    max_error = pd_az_el_raw["el_diff"].max()
-    txt = f"Elevation estimate does not meet the expected accuracy. Expected: {az_el_required_precision}rad, estimated: mean {mean_error}rad, max {max_error}rad."
-    assert (pd_az_el_raw["el_diff"] < az_el_required_precision).all(), txt
-    mean_error = pd_az_el_raw["az_diff"].mean()
-    max_error = pd_az_el_raw["az_diff"].max()
-    txt = f"Azimuth estimate does not meet the expected accuracy. Expected: {az_el_required_precision}rad, estimated: mean {mean_error}rad, max {max_error}rad."
-    assert (pd_az_el_raw["az_diff"] < az_el_required_precision).all(), txt
+def test_pos_gal():
+    estimate(raw_df=pos_raw_df[pos_raw_df["gnss_id"] == "gal"], gt_df=pos_gt, gnss_id="gal")
+
+def test_pos_gps():
+    estimate(raw_df=pos_raw_df[pos_raw_df["gnss_id"] == "gps"], gt_df=pos_gt, gnss_id="gps")
+
+def test_pos_glo():
+    estimate(raw_df=pos_raw_df[pos_raw_df["gnss_id"] == "glo"], gt_df=pos_gt, gnss_id="glo")
+
+def test_pos_bei():
+    estimate(raw_df=pos_raw_df[pos_raw_df["gnss_id"] == "bei"], gt_df=pos_gt, gnss_id="bei")
+
+def test_pos_multi():
+    estimate(raw_df=pos_raw_df, gt_df=pos_gt, gnss_id="all")
+
+def test_receiver():
+    pvt_df, _ = get_position_estimate(receiver_raw_df, pd_ephemeris=ephem_df, verbose=True)
+
+def estimate(raw_df:pd.DataFrame, gt_df:pd.DataFrame, gnss_id:str, verbose:bool = True):
+    pvt_df, _ = get_position_estimate(raw_df, pd_ephemeris=ephem_df, verbose=verbose)
+
+    comparison_df = pvt_df.merge(gt_df, on=["time"], suffixes=("", "_gt"))
+    x_diff = comparison_df["x_rx_m"] - comparison_df["x_rx_m_gt"]
+    y_diff = comparison_df["y_rx_m"] - comparison_df["y_rx_m_gt"]
+    z_diff = comparison_df["z_rx_m"] - comparison_df["z_rx_m_gt"]
+    vx_diff = comparison_df["vx_rx_mps"] - comparison_df["vx_rx_mps_gt"]
+    vy_diff = comparison_df["vy_rx_mps"] - comparison_df["vy_rx_mps_gt"]
+    vz_diff = comparison_df["vz_rx_mps"] - comparison_df["vz_rx_mps_gt"]
+
+    report = (
+        f"Current precision for position is x{int(x_diff.abs().max())}m, y{int(y_diff.abs().max())}m, z{int(z_diff.abs().max())}m "
+        f"(mean = {int(x_diff.abs().mean())}, {int(y_diff.abs().mean())}, {int(z_diff.abs().mean())}), target precision is {required_pos_precision}m "
+        f"Current precision for velocity is x{int(vx_diff.abs().max())}mps, y{int(vy_diff.abs().max())}m, z{int(vz_diff.abs().max())}mps "
+        f"(mean = {int(vx_diff.abs().mean())}, {int(vy_diff.abs().mean())}, {int(vz_diff.abs().mean())}), target precision is {required_speed_precision}mps")
+
+    if verbose:
+        print(f"Precision report for sv model {gnss_id}")
+        print(report)
+
+    assert ((x_diff.abs().max() < required_pos_precision and y_diff.abs().max() < required_pos_precision
+            and z_diff.abs().max() < required_pos_precision)
+            and (vx_diff.abs().max() < required_speed_precision and vy_diff.abs().max() < required_speed_precision
+            and vz_diff.abs().max() < required_speed_precision) and len(comparison_df) > 0), \
+        f"Precision requirement is not met for {gnss_id}. \n{report}"
+
 
 if __name__ == "__main__":
-    test_glo_pos_estimate()
-    test_gal_pos_estimate()
-    test_gps_pos_estimate()
-    test_bei_pos_estimate()
-    test_multi_constellation_pos_estimate()
-    test_azimuth_elevation()
+    test_pos_gal()
+    test_pos_gps()
+    test_pos_glo()
+    test_pos_bei()
+    test_pos_multi()
+    test_receiver()
+

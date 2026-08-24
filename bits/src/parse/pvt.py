@@ -5,10 +5,11 @@ Parse NMEA files
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 
-from bits.src.convert.space_conversion import wgs_to_ecef, enu_to_ecef
+from bits.src import convert
 
-def gga(filepath:str) -> pd.DataFrame:
+def gga(filepath:str|Path) -> pd.DataFrame:
     """
     Parse GGA from nmea text file. Requires RMC inside the NMEA file to get the date.
 
@@ -80,7 +81,7 @@ def gga(filepath:str) -> pd.DataFrame:
                     lon_deg *= -1
 
                 # Convert lla to ecef
-                x_ecef, y_ecef, z_ecef = wgs_to_ecef(lat_deg, lon_deg, altitude)
+                x_ecef, y_ecef, z_ecef = convert.space.wgs_to_ecef(lat_deg, lon_deg, altitude)
 
                 # Timestamp UTC
                 time_str = f"{current_date} {time_str}"
@@ -111,7 +112,7 @@ def gga(filepath:str) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-def rmc(filepath: str) -> pd.DataFrame:
+def rmc(filepath: str|Path) -> pd.DataFrame:
     """
     Parse RMC from nmea text file.
 
@@ -152,7 +153,7 @@ def rmc(filepath: str) -> pd.DataFrame:
                 if lon_hem == "W": lon_deg *= -1
 
                 # Convert lla to ecef. Altitude is not available in RMC message; setting to 0
-                x_ecef, y_ecef, z_ecef = wgs_to_ecef(lat_deg, lon_deg, 0)
+                x_ecef, y_ecef, z_ecef = convert.space.wgs_to_ecef(lat_deg, lon_deg, 0)
 
                 # Timestamp UTC
                 time_str = f"{date_str} {time_str}"
@@ -165,10 +166,9 @@ def rmc(filepath: str) -> pd.DataFrame:
                 v_east = speed_mps * np.sin(cog_rad)
                 v_north = speed_mps * np.cos(cog_rad)
 
-                v_matrix_enu = np.array([v_east, v_north, 0])
-
                 # Convert speed to ECEF
-                v_matrix_ecef = enu_to_ecef(ancre_ecef=(x_ecef, y_ecef, z_ecef), enu_matrix=v_matrix_enu)
+
+                v_matrix_ecef = convert.space.enu_to_ecef(x_ecef, y_ecef, z_ecef, v_east, v_north, 0)
 
                 records.append({
                     "time": time,
@@ -180,9 +180,9 @@ def rmc(filepath: str) -> pd.DataFrame:
                     "y_rx_m": float(y_ecef),
                     "z_rx_m": float(z_ecef),
                     "b_rx_m": 0,
-                    "vx_rx_mps": float(v_matrix_ecef[0]),
-                    "vy_rx_mps": float(v_matrix_ecef[1]),
-                    "vz_rx_mps": float(v_matrix_ecef[2]),
+                    "vx_rx_mps": v_matrix_ecef[0],
+                    "vy_rx_mps": v_matrix_ecef[1],
+                    "vz_rx_mps": v_matrix_ecef[2],
                     "vb_rx_mps": 0,
                     "speed_mps": float(speed_mps),
                     "cog_rad": float(cog_rad),
