@@ -14,10 +14,44 @@ diurnal rotation of earth, this is not an inertial reference system.
 
 import numpy as np
 import pandas as pd
+import pyproj
 import warnings
 
 from bits.src import convert
 from bits.src import const
+
+# WGS84 ellipsoid parameters
+B = const.RE * (1 - const.FLATTENING_E) # Earth semi-minor axis (m)
+E2 = 1 - (B ** 2) / (const.RE ** 2) # First eccentricity squared ()
+EP2 = (const.RE ** 2 - B ** 2) / (B ** 2) # Second eccentricity squared ()
+
+_wgs_to_ecef_transformer = pyproj.Transformer.from_crs("epsg:4979", "epsg:4978", always_xy=True)
+_ecef_to_wgs_transformer = pyproj.Transformer.from_crs("epsg:4978", "epsg:4979", always_xy=True)
+
+
+def wgs_to_ecef(lat: np.ndarray, lon: np.ndarray, alt: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Converts WGS (EPSG:4326) coordinates to ECEF (EPSG:4978)
+    :param lat: latitude (wgs)
+    :param lon: longitude (wgs)
+    :param alt: altitude (wgs)
+    :return: x_ecef, y_ecef, z_ecef
+    """
+    x_ecef, y_ecef, z_ecef = _wgs_to_ecef_transformer.transform(lon, lat, alt)
+    return np.asarray(x_ecef), np.asarray(y_ecef), np.asarray(z_ecef)
+
+
+def ecef_to_wgs(x_ecef: np.ndarray, y_ecef: np.ndarray, z_ecef: np.ndarray) \
+        -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Converts ECEF (EPSG:4978) coordinates to WGS (EPSG:4326)
+    :param x_ecef:
+    :param y_ecef:
+    :param z_ecef:
+    :return: lat, lon, alt (wgs)
+    """
+    lon, lat, alt = _ecef_to_wgs_transformer.transform(x_ecef, y_ecef, z_ecef)
+    return np.asarray(lat), np.asarray(lon), np.asarray(alt)
 
 
 def _rotate_ecef_eci(x, y, z, sidereal_time, to_eci:bool):
@@ -175,10 +209,7 @@ def ecef_to_enu(x_ref: np.ndarray, y_ref: np.ndarray, z_ref: np.ndarray,
                  x_target: np.ndarray, y_target: np.ndarray, z_target: np.ndarray
                  ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Converts ECEF target position(s) into local ENU (East-North-Up) coordinates
-    relative to a reference position, using the reference to define the local tangent plane.
-    Fully vectorized: reference and target can be arrays of the same length (one
-    reference per target), or the reference can be scalars (single shared reference).
+    Compute East North Up coordinates from a reference.
 
     :param x_ref: X coordinate(s) of the reference position in ECEF (m)
     :param y_ref: Y coordinate(s) of the reference position in ECEF (m)
@@ -195,27 +226,20 @@ def ecef_to_enu(x_ref: np.ndarray, y_ref: np.ndarray, z_ref: np.ndarray,
     y_target = np.asarray(y_target, dtype=np.float64)
     z_target = np.asarray(z_target, dtype=np.float64)
 
-    # WGS84 ellipsoid parameters
-    a = 6378137.0
-    f = 1 / 298.257223563
-    b = a * (1 - f)
-    e2 = 1 - (b ** 2) / (a ** 2)
-    ep2 = (a ** 2 - b ** 2) / (b ** 2)
-
-    # Convert reference point ECEF -> geodetic latitude/longitude (Bowring's method)
+    # Convert reference point ECEF -> geodetic latitude/longitude
     p = np.sqrt(x_ref ** 2 + y_ref ** 2)
-    theta = np.arctan2(z_ref * a, p * b)
+    theta = np.arctan2(z_ref * const.RE, p * B)
 
     lon = np.arctan2(y_ref, x_ref)
-    lat = np.arctan2(z_ref + ep2 * b * np.sin(theta) ** 3,
-                      p - e2 * a * np.cos(theta) ** 3)
+    lat = np.arctan2(z_ref + EP2 * B * np.sin(theta) ** 3,
+                      p - E2 * const.RE * np.cos(theta) ** 3)
 
     # Displacement vector from reference to target, in ECEF
     dx = x_target - x_ref
     dy = y_target - y_ref
     dz = z_target - z_ref
 
-    # Rotation from ECEF to ENU (row-wise, vectorized: one rotation per reference point)
+    # Rotation from ECEF to ENU
     sin_lat, cos_lat = np.sin(lat), np.cos(lat)
     sin_lon, cos_lon = np.sin(lon), np.cos(lon)
 
@@ -224,3 +248,47 @@ def ecef_to_enu(x_ref: np.ndarray, y_ref: np.ndarray, z_ref: np.ndarray,
     u = cos_lat * cos_lon * dx + cos_lat * sin_lon * dy + sin_lat * dz
 
     return e, n, u
+
+def enu_to_ecef(x_ref: np.ndarray, y_ref: np.ndarray, z_ref: np.ndarray,
+                 e: np.ndarray, n: np.ndarray, u: np.ndarray
+                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Compute ECEF coordinates from East North Up coordinates with an ECEF reference.
+
+    :param x_ref: X coordinate(s) of the reference position in ECEF (m)
+    :param y_ref: Y coordinate(s) of the reference position in ECEF (m)
+    :param z_ref: Z coordinate(s) of the reference position in ECEF (m)
+    :param e: East coordinate(s) of the target relative to reference (m)
+    :param n: North coordinate(s) of the target relative to reference (m)
+    :param u: Up coordinate(s) of the target relative to reference (m)
+    :return: tuple (x_target, y_target, z_target), ECEF coordinates (m) of target
+    """
+    x_ref = np.asarray(x_ref, dtype=np.float64)
+    y_ref = np.asarray(y_ref, dtype=np.float64)
+    z_ref = np.asarray(z_ref, dtype=np.float64)
+    e = np.asarray(e, dtype=np.float64)
+    n = np.asarray(n, dtype=np.float64)
+    u = np.asarray(u, dtype=np.float64)
+
+    # Convert reference point ECEF -> geodetic latitude/longitude
+    p = np.sqrt(x_ref ** 2 + y_ref ** 2)
+    theta = np.arctan2(z_ref * const.RE, p * B)
+
+    lon = np.arctan2(y_ref, x_ref)
+    lat = np.arctan2(z_ref + EP2 * B * np.sin(theta) ** 3,
+                      p - E2 * const.RE * np.cos(theta) ** 3)
+
+    # Rotation from ENU to ECEF
+    sin_lat, cos_lat = np.sin(lat), np.cos(lat)
+    sin_lon, cos_lon = np.sin(lon), np.cos(lon)
+
+    dx = -sin_lon * e - sin_lat * cos_lon * n + cos_lat * cos_lon * u
+    dy = cos_lon * e - sin_lat * sin_lon * n + cos_lat * sin_lon * u
+    dz = cos_lat * n + sin_lat * u
+
+    # Add reference position to get absolute target position in ECEF
+    x_target = x_ref + dx
+    y_target = y_ref + dy
+    z_target = z_ref + dz
+
+    return x_target, y_target, z_target

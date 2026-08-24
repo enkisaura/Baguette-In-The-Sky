@@ -18,6 +18,7 @@ OMEGA_E = 7.2921151467e-5  # WGS 84 value of the earth's rotation rate (rad/s)
 OMEGA_E_BEI = 7.2921150e-5  # BEIDOU value of the earth's rotation rate (rad/s)
 G = 9.80665 # gravitational acceleration (m/s²)
 RE = 6378137 # WGS 84 Earth Equatorial Radius (m)
+FLATTENING_E = 1 / 298.257223563  # WGS 84 Earth flattenint ratio ()
 J2 = 0.0010826262 # Oblate Earth Gravity Coefficient
 
 # Mean frequency associated with a gnss band (Hz)

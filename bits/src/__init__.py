@@ -1,6 +1,6 @@
 from . import *
 from .parse import ephemeris, raw, pvt
-from .convert import space_conversion, other, space, time
+from .convert import other, space, time
 from . import const, utils
 from . import corrections
 from . import plotter

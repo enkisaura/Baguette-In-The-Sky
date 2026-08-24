@@ -19,7 +19,6 @@ import pandas as pd
 import numpy as np
 import warnings
 
-from bits.src.convert.space_conversion import ecef_to_wgs
 from bits.src.corrections import get_clock_corrections, get_atmospheric_corrections
 from bits.src.sv_model import get_sv_states
 from bits.src import const, convert, utils
@@ -290,8 +289,9 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
 
     # Add WGS coordinates
     if not np.isnan(np_rx_pos).any():
-        serie_gnss_approx_pvt['lat'], serie_gnss_approx_pvt['lon'], serie_gnss_approx_pvt['alt'] \
-            = ecef_to_wgs(float(np_rx_pos[0]), float(np_rx_pos[1]), float(np_rx_pos[2]))
+        lat, lon, alt = convert.space.ecef_to_wgs(np_rx_pos[0], np_rx_pos[1], np_rx_pos[2])
+        serie_gnss_approx_pvt['lat'], serie_gnss_approx_pvt['lon'], serie_gnss_approx_pvt['alt'] = (
+            float(lat), float(lon), float(alt))
     else:
         serie_gnss_approx_pvt['lat'], serie_gnss_approx_pvt['lon'], serie_gnss_approx_pvt['alt'] = (np.nan, np.nan, np.nan)
 
