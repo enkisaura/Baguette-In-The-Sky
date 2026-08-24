@@ -59,9 +59,9 @@ def test_pos_multi():
     estimate(raw_df=pos_raw_df, gt_df=pos_gt, gnss_id="all")
 
 def test_receiver():
-    pvt_df, _ = get_position_estimate(receiver_raw_df, pd_ephemeris=ephem_df, verbose=False)
+    pvt_df, _ = get_position_estimate(receiver_raw_df, pd_ephemeris=ephem_df, verbose=True)
 
-def estimate(raw_df:pd.DataFrame, gt_df:pd.DataFrame, gnss_id:str, verbose:bool = False):
+def estimate(raw_df:pd.DataFrame, gt_df:pd.DataFrame, gnss_id:str, verbose:bool = True):
     pvt_df, _ = get_position_estimate(raw_df, pd_ephemeris=ephem_df, verbose=verbose)
 
     comparison_df = pvt_df.merge(gt_df, on=["time"], suffixes=("", "_gt"))

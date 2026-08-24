@@ -14,7 +14,10 @@ import json
 import time
 import hashlib
 import os
+import tempfile
+import zipfile
 from pathlib import Path
+import requests
 import warnings
 from typing import Callable, Literal
 
@@ -209,11 +212,97 @@ def fast_parse(filepath: str|Path, parser: Callable, lock_timeout: float = 300) 
 
     return _load_with_schema(csv_path, schema_path)
 
+def get_zip_download_url(record_id: str) -> tuple[str, str]:
+    """
+    Queries the Zenodo API for a given record and returns the download URL
+    and filename of the first .zip file found among the record's files.
+
+    :param record_id: Zenodo record ID
+    :return: (download_url, filename)
+    """
+    response = requests.get(f"https://zenodo.org/api/records/{record_id}", timeout=30)
+    response.raise_for_status()
+    record = response.json()
+
+    for file_entry in record.get("files", []):
+        filename = file_entry["key"]
+        if filename.lower().endswith(".zip"):
+            download_url = file_entry["links"]["self"]
+            return download_url, filename
+
+    raise FileNotFoundError(
+        f"No .zip file found in Zenodo record {record_id}"
+    )
+
+
+def download_file(url: str, destination: Path, chunk_size: int = 1024 * 1024):
+    """
+    Streams a file from a URL to a local path, avoiding loading the whole
+    file into memory at once (important for large data archives).
+
+    :param url: file URL to download
+    :param destination: local path to write the file to
+    :param chunk_size: size of each streamed chunk, in bytes
+    """
+    with requests.get(url, stream=True, timeout=30) as response:
+        response.raise_for_status()
+        total_size = int(response.headers.get("content-length", 0))
+        downloaded = 0
+
+        with open(destination, "wb") as f:
+            for chunk in response.iter_content(chunk_size=chunk_size):
+                f.write(chunk)
+                downloaded += len(chunk)
+                if total_size:
+                    percent = downloaded / total_size * 100
+                    print(f"\rDownloading: {percent:5.1f}%", end="", flush=True)
+        print()  # newline after progress bar
+
+
+def extract_zip(zip_path: Path, target_dir: Path):
+    """
+    Extracts a ZIP archive into the target directory. Creates the target
+    directory if it doesn't already exist.
+
+    :param zip_path: path to the local .zip file
+    :param target_dir: directory to extract contents into
+    """
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(target_dir)
+
+
+def download_and_extract(target_dir: Path, record_id: str = "22086421", force: bool = False):
+    """
+    Downloads the ZIP data archive from a Zenodo record and extracts it
+    into target_dir.
+
+    :param record_id: Zenodo record ID
+    :param target_dir: directory to extract data into (default: src/data)
+    :param force: if False and target_dir already exists and is non-empty,
+                   skip the download/extraction
+    """
+    if target_dir.exists() and any(target_dir.iterdir()) and not force:
+        print(f"Data already present in {target_dir}, skipping download.")
+        print("Pass force=True to re-download.")
+        return
+
+    download_url, filename = get_zip_download_url(record_id)
+
+    # Use a temporary directory so a failed/partial download never leaves
+    # a corrupted zip lying around in the repo
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        zip_path = Path(tmp_dir) / filename
+        download_file(download_url, zip_path)
+        extract_zip(zip_path, target_dir)
+
 
 def get_example_data_filepath(data_type: Literal["ephemeris", "raw", "pvt"],
                               rover_type: Literal["fixed", "circular", "urban", "sv"] = "fixed") -> tuple[Path]|None:
+    example_data_folderpath = Path(Path(__file__).resolve().parent, "data", "example_data")
 
-    example_data_folderpath = os.path.join(os.getcwd(), "bits", "src", "data", "example_data")
+    if not example_data_folderpath.exists():
+        download_and_extract(example_data_folderpath.parent)
 
     filepath_dict = {
         "fixed":{
