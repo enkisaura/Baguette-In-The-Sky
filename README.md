@@ -1,5 +1,7 @@
-# <img src="./bits_logo2.png" title="logo" width="60"/> Baguette in the sky
-
+<h1>
+  Baguette in the sky
+  <img src="bits_logo.png" width="40" valign="middle" alt="Logo">
+</h1>
 A simple python GNSS library.
 
 ---
