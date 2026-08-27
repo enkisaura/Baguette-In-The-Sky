@@ -206,21 +206,19 @@ def rotate_ecef(x: float, y: float, z: float, delta_time: np.ndarray|np.timedelt
     return _rotate_ecef_eci(x, y, z, rotation_angle, to_eci=False)
 
 
-def ecef_to_enu(x_ref: np.ndarray, y_ref: np.ndarray, z_ref: np.ndarray,
-                 x_target: np.ndarray, y_target: np.ndarray, z_target: np.ndarray
-                 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def ecef_to_enu(x_target: np.ndarray, y_target: np.ndarray, z_target: np.ndarray,
+                x_ref: np.ndarray, y_ref: np.ndarray, z_ref: np.ndarray, with_translation=True) \
+        -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Converts ECEF target position(s) into local ENU (East-North-Up) coordinates
-    relative to a reference position, using the reference to define the local tangent plane.
-    Fully vectorized: reference and target can be arrays of the same length (one
-    reference per target), or the reference can be scalars (single shared reference).
+    Converts ECEF target position(s) into local ENU (East-North-Up) coordinates.
 
-    :param x_ref: X coordinate(s) of the reference position in ECEF (m)
-    :param y_ref: Y coordinate(s) of the reference position in ECEF (m)
-    :param z_ref: Z coordinate(s) of the reference position in ECEF (m)
-    :param x_target: X coordinate(s) of the target position in ECEF (m)
-    :param y_target: Y coordinate(s) of the target position in ECEF (m)
-    :param z_target: Z coordinate(s) of the target position in ECEF (m)
+    :param x_ref: X coordinate of the reference position in ECEF (m)
+    :param y_ref: Y coordinate of the reference position in ECEF (m)
+    :param z_ref: Z coordinate of the reference position in ECEF (m)
+    :param x_target: X coordinate of the target position in ECEF (m)
+    :param y_target: Y coordinate of the target position in ECEF (m)
+    :param z_target: Z coordinate of the target position in ECEF (m)
+    :param with_translation: Set to False to disable translation (for baseline, velocity, acceleration, ...)
     :return: tuple (e, n, u), East/North/Up coordinates (m) of target relative to reference
     """
     x_ref = np.asarray(x_ref, dtype=np.float64)
@@ -231,26 +229,27 @@ def ecef_to_enu(x_ref: np.ndarray, y_ref: np.ndarray, z_ref: np.ndarray,
     z_target = np.asarray(z_target, dtype=np.float64)
 
     # WGS84 ellipsoid parameters
-    a = 6378137.0
-    f = 1 / 298.257223563
-    b = a * (1 - f)
-    e2 = 1 - (b ** 2) / (a ** 2)
-    ep2 = (a ** 2 - b ** 2) / (b ** 2)
+    b = const.RE * (1 - const.FLATTENING_E)
+    e2 = 1 - (b ** 2) / (const.RE ** 2)
+    ep2 = (const.RE ** 2 - b ** 2) / (b ** 2)
 
-    # Convert reference point ECEF -> geodetic latitude/longitude (Bowring's method)
+    # Convert reference point ECEF -> geodetic latitude/longitude
     p = np.sqrt(x_ref ** 2 + y_ref ** 2)
-    theta = np.arctan2(z_ref * a, p * b)
+    theta = np.arctan2(z_ref * const.RE, p * b)
 
     lon = np.arctan2(y_ref, x_ref)
-    lat = np.arctan2(z_ref + ep2 * b * np.sin(theta) ** 3,
-                      p - e2 * a * np.cos(theta) ** 3)
+    lat = np.arctan2(z_ref + ep2 * b * np.sin(theta) ** 3, p - e2 * const.RE * np.cos(theta) ** 3)
 
     # Displacement vector from reference to target, in ECEF
-    dx = x_target - x_ref
-    dy = y_target - y_ref
-    dz = z_target - z_ref
+    dx = x_target
+    dy = y_target
+    dz = z_target
+    if with_translation:
+        dx -= x_ref
+        dy -= y_ref
+        dz -= z_ref
 
-    # Rotation from ECEF to ENU (row-wise, vectorized: one rotation per reference point)
+    # Rotation from ECEF to ENU
     sin_lat, cos_lat = np.sin(lat), np.cos(lat)
     sin_lon, cos_lon = np.sin(lon), np.cos(lon)
 
@@ -261,35 +260,105 @@ def ecef_to_enu(x_ref: np.ndarray, y_ref: np.ndarray, z_ref: np.ndarray,
     return e, n, u
 
 
-def _ecef_to_enu_transition_matrix(x_ref: np.ndarray, y_ref: np.ndarray, z_ref: np.ndarray) -> np.array:
+def enu_to_ecef(e: np.ndarray, n: np.ndarray, u: np.ndarray,
+                 x_ref: np.ndarray, y_ref: np.ndarray, z_ref: np.ndarray, with_translation=True) \
+        -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    x->Est
-    y->North
-    z->Up
+    Converts local ENU (East-North-Up) coordinates into ECEF target position(s).
+
+    :param e: East coordinate (m) of target relative to reference
+    :param n: North coordinate (m) of target relative to reference
+    :param u: Up coordinate (m) of target relative to reference
+    :param x_ref: X coordinate of the reference position in ECEF (m)
+    :param y_ref: Y coordinate of the reference position in ECEF (m)
+    :param z_ref: Z coordinate of the reference position in ECEF (m)
+    :param with_translation: Set to False to disable translation (for baseline, velocity, acceleration, ...)
+    :return: tuple (x_target, y_target, z_target), ECEF coordinates (m) of target
+    """
+    e = np.asarray(e, dtype=np.float64)
+    n = np.asarray(n, dtype=np.float64)
+    u = np.asarray(u, dtype=np.float64)
+    x_ref = np.asarray(x_ref, dtype=np.float64)
+    y_ref = np.asarray(y_ref, dtype=np.float64)
+    z_ref = np.asarray(z_ref, dtype=np.float64)
+
+    # WGS84 ellipsoid parameters
+    b = const.RE * (1 - const.FLATTENING_E)
+    e2 = 1 - (b ** 2) / (const.RE ** 2)
+    ep2 = (const.RE ** 2 - b ** 2) / (b ** 2)
+
+    # Convert reference point ECEF -> geodetic latitude/longitude
+    p = np.sqrt(x_ref ** 2 + y_ref ** 2)
+    theta = np.arctan2(z_ref * const.RE, p * b)
+
+    lon = np.arctan2(y_ref, x_ref)
+    lat = np.arctan2(z_ref + ep2 * b * np.sin(theta) ** 3, p - e2 * const.RE * np.cos(theta) ** 3)
+
+    # Rotation from ENU to ECEF (transpose of the ECEF -> ENU rotation)
+    sin_lat, cos_lat = np.sin(lat), np.cos(lat)
+    sin_lon, cos_lon = np.sin(lon), np.cos(lon)
+
+    dx = -sin_lon * e - sin_lat * cos_lon * n + cos_lat * cos_lon * u
+    dy = cos_lon * e - sin_lat * sin_lon * n + cos_lat * sin_lon * u
+    dz = cos_lat * n + sin_lat * u
+
+    # Add reference position back to get absolute ECEF coordinates
+    x_target = dx
+    y_target = dy
+    z_target = dz
+    if with_translation:
+        x_target += x_ref
+        y_target += y_ref
+        z_target += z_ref
+
+    return x_target, y_target, z_target
+
+
+def ecef_to_enu_rotation_matrix(x_ref: float, y_ref: float, z_ref: float, wgs=True) -> np.ndarray:
+    """
+    Rotation matrix to convert ECEF vectors to ENU (rotation only, no translation)
+
     Basis Change:
         If a vector has coordinates X and X' in two different bases B and B', then:
-            X = P * X'
+            X = R * X'
 
         The new basis B' (e'₁, e'₂, e'₃) is obtained by a rotation of an angle α around the axis e₃. Therefore, we have:
             e'1 = cos(α) e1 + sin(α) e2 ;
             e'2 = –sin(α) e1 + cos(α) e2 ;
             e'3 = e3.
 
-        The change of basis matrix P is written as:
-            P = [[cos(α), -sin(α), 0], [sin(α), cos(α), 0], [0, 0, 1]]
+        The rotation matrix R is written as:
+            R = [[cos(α), -sin(α), 0], [sin(α), cos(α), 0], [0, 0, 1]]
 
-    Usage: ENU_data = p.dot(ECEF_data)
-    :param approx_ecef:
-    :return:
+    Usage: ENU_data = r @ ECEF_data
+
+    :param x_ref: Reference point X coordinates (ECEF meters)
+    :param y_ref: Reference point Y coordinates (ECEF meters)
+    :param z_ref: Reference point Z coordinates (ECEF meters)
+    :param wgs: Set to True for WGS84 convention
+    :return: ECEF to ENU rotation matrix (3, 3)
     """
-    ρ = np.sqrt(x_ref ** 2 + y_ref ** 2 + z_ref ** 2)
+    φ = np.atan2(y_ref, x_ref)
+
+    if wgs:
+        # WGS84 ellipsoid parameters
+        b = const.RE * (1 - const.FLATTENING_E)
+        e2 = 1 - (b ** 2) / (const.RE ** 2)
+        ep2 = (const.RE ** 2 - b ** 2) / (b ** 2)
+
+        # Geodetic latitude
+        p = np.sqrt(x_ref ** 2 + y_ref ** 2)
+        t = np.arctan2(z_ref * const.RE, p * b)
+        θ = np.arctan2(z_ref + ep2 * b * np.sin(t) ** 3, p - e2 * const.RE * np.cos(t) ** 3)
+    else:
+        # Geocentric (spherical) latitude approximation
+        ρ = np.sqrt(x_ref ** 2 + y_ref ** 2 + z_ref ** 2)
+        θ = np.pi / 2 - np.arccos(z_ref / ρ)
 
     # I/Rotation along the z axis
-    φ = np.atan2(y_ref, x_ref)  # Rotation angle
     p1 = np.array([[np.cos(φ), np.sin(φ), 0], [-np.sin(φ), np.cos(φ), 0], [0, 0, 1]])
 
     # II/Rotation along the y axis
-    θ = np.pi/2 - np.acos(z_ref / ρ)  # Rotation angle
     p2 = np.array([[np.cos(θ), 0, np.sin(θ)], [0, 1, 0], [-np.sin(θ), 0, np.cos(θ)]])
 
     # III/Switching axis
@@ -301,16 +370,80 @@ def _ecef_to_enu_transition_matrix(x_ref: np.ndarray, y_ref: np.ndarray, z_ref: 
     return p
 
 
-def enu_to_ecef(x_ref: float, y_ref: float, z_ref: float, e: np.ndarray, n: np.ndarray, u: np.ndarray) \
-        -> np.array:
+def covariance_ecef_to_enu(covx: float, covy: float, covz: float,
+                           covyx: float, covzx: float, covzy: float,
+                           x_ref: float|None = None, y_ref: float|None = None, z_ref: float|None = None,
+                           r: np.ndarray|None = None, wgs=True) -> tuple:
     """
-    Compute ECEF coordinates from East North Up coordinates from an ancre.
-    :param ancre_ecef: Reference point coordinates (ECEF meters)
-    :param enu_matrix: ENU coordinates (meters) to convert to ECEF. E, N, U must be the matrix's columns.
-    :return: ECEF coordinates (meters)
+    Convert ECEF covariance to East North Up covariance from a reference position.
+
+    Needs either an already computed rotation matrix r (from ecef to enu) or a reference position to compute the
+    rotation matrix.
+
+    :param covx: X variance
+    :param covy: Y variance
+    :param covz: Z variance
+    :param covyx: Y-X covariance
+    :param covzx: Z-X covariance
+    :param covzy: Z-Y covariance
+    :param x_ref: Reference point X coordinates (ECEF meters)
+    :param y_ref: Reference point Y coordinates (ECEF meters)
+    :param z_ref: Reference point Z coordinates (ECEF meters)
+    :param r: Rotation matrix (bits.convert.space.ecef_to_enu_rotation_matrix(x_ref, y_ref, z_ref))
+    :param wgs: Set to True for WGS84 convention
+    :return: ECEF covariance (e, n, u, en, eu, nu)
     """
-    enu_matrix = np.hstack([e, n, u])
-    p = _ecef_to_enu_transition_matrix(x_ref, y_ref, z_ref)
-    p = np.linalg.inv(p)
-    ecef_matrix = p @ enu_matrix
-    return ecef_matrix.transpose()
+    if r is None:
+        if x_ref is None or y_ref is None or z_ref is None:
+            raise ValueError("Either rotation matrix p or ref position must be provided.")
+        r = ecef_to_enu_rotation_matrix(x_ref, y_ref, z_ref, wgs)
+
+    cov_ecef = np.array([
+        [covx, covyx, covzx],
+        [covyx, covy, covzy],
+        [covzx, covzy, covz]
+    ])
+
+    cov_enu = r @ cov_ecef @ r.transpose()
+
+    return cov_enu[0][0], cov_enu[1][1], cov_enu[2][2], cov_enu[0][1], cov_enu[0][2], cov_enu[1][2]
+
+
+def covariance_enu_to_ecef(cove: float, covn: float, covu: float,
+                           covne: float, covue: float, covun: float,
+                           x_ref: float|None = None, y_ref: float|None = None, z_ref: float|None = None,
+                           r: np.ndarray|None = None, wgs=True) -> tuple:
+    """
+    Convert East North Up covariance to East North Up covariance from a reference position.
+
+    Needs either an already computed rotation matrix r (from enu to ecef) or a reference position to compute the
+    rotation matrix.
+
+    :param cove: east variance
+    :param covn: north variance
+    :param covu: up variance
+    :param covne: north-east covariance
+    :param covue: up-east covariance
+    :param covun: up-north covariance
+    :param x_ref: Reference point X coordinates (ECEF meters)
+    :param y_ref: Reference point Y coordinates (ECEF meters)
+    :param z_ref: Reference point Z coordinates (ECEF meters)
+    :param r: Rotation matrix (np.linalg.inv(bits.convert.space.ecef_to_enu_rotation_matrix(x_ref, y_ref, z_ref)))
+    :param wgs: Set to True for WGS84 convention
+    :return: ECEF covariance (x, y, z, xy, xz, yz)
+    """
+    if r is None:
+        if x_ref is None or y_ref is None or z_ref is None:
+            raise ValueError("Either rotation matrix p or ref position must be provided.")
+        r = ecef_to_enu_rotation_matrix(x_ref, y_ref, z_ref, wgs)
+        r = np.linalg.inv(r)
+
+    cov_enu = np.array([
+        [cove, covne, covue],
+        [covne, covn, covun],
+        [covue, covun, covu]
+    ])
+
+    cov_ecef = r @ cov_enu @ r.transpose()
+
+    return cov_ecef[0][0], cov_ecef[1][1], cov_ecef[2][2], cov_ecef[0][1], cov_ecef[0][2], cov_ecef[1][2]

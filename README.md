@@ -1,6 +1,6 @@
 <h1>
   Baguette in the sky
-  <img src="bits_logo.png" width="40" valign="middle" alt="Logo">
+  <img src="logo_eclipse_de_baguette.png" width="40" valign="middle" alt="Logo">
 </h1>
 A simple python GNSS library.
 
