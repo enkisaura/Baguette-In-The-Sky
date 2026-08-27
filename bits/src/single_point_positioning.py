@@ -515,7 +515,7 @@ def get_sv_el_az(pd_gnss_raw: pd.DataFrame, pd_gnss_pvt: pd.DataFrame) -> pd.Dat
         y_sv = merged["y_sv_m"].to_numpy()[valid_mask]
         z_sv = merged["z_sv_m"].to_numpy()[valid_mask]
 
-        e, n, u = convert.space.ecef_to_enu(x_rx, y_rx, z_rx, x_sv, y_sv, z_sv)
+        e, n, u = convert.space.ecef_to_enu(x_sv, y_sv, z_sv, x_rx, y_rx, z_rx)
 
         horiz_dist = np.sqrt(e ** 2 + n ** 2)
         el = np.arctan2(u, horiz_dist)

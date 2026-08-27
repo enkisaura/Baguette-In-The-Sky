@@ -1,13 +1,13 @@
-# Baguette in the sky
-
+<h1>
+  Baguette in the sky
+  <img src="logo_eclipse_de_baguette.png" width="40" valign="middle" alt="Logo">
+</h1>
 A simple python GNSS library.
-
-![Logo](bits_logo.jpg)
 
 ---
 ## BITS dataframes definition
 ### BITS ephemeris dataframe
-Ephemeris parameters that can be found in a rinex nav file.
+Ephemeris parameters. One line per ephemeris time and per SV.
 
 | Name              | Description                                                                  | Unit                       | Type       |
 |-------------------|------------------------------------------------------------------------------|----------------------------|------------|
@@ -31,15 +31,15 @@ Ephemeris parameters that can be found in a rinex nav file.
 | crs               | Amplitude of the sine harmonic correction term to the orbit radius           | metre                      | float      |
 | cic               | Amplitude of the cosine harmonic correction term to the angle of inclination | radian                     | float      |
 | cis               | Amplitude of the sine harmonic correction term to the angle of inclination   | radian                     | float      |
-| X                 | Satellite position on X axis (ECI)                                           | metre                      | float      |
-| Y                 | Satellite position on Y axis (ECI)                                           | metre                      | float      |
-| Z                 | Satellite position on Z axis (ECI)                                           | metre                      | float      |
-| dX                | Satellite velocity on X axis (ECI)                                           | metre/second               | float      |
-| dY                | Satellite velocity on Y axis (ECI)                                           | metre/second               | float      |
-| dZ                | Satellite velocity on Z axis (ECI)                                           | metre/second               | float      |
-| dX2               | Luni-solar acceleration on X axis (ECI)                                      | metre/second²              | float      |
-| dY2               | Luni-solar acceleration on Y axis (ECI)                                      | metre/second²              | float      |
-| dZ2               | Luni-solar acceleration on Z axis (ECI)                                      | metre/second²              | float      |
+| X                 | Satellite position on X axis (ECEF)                                          | metre                      | float      |
+| Y                 | Satellite position on Y axis (ECEF)                                          | metre                      | float      |
+| Z                 | Satellite position on Z axis (ECEF)                                          | metre                      | float      |
+| dX                | Satellite velocity on X axis (ECEF)                                          | metre/second               | float      |
+| dY                | Satellite velocity on Y axis (ECEF)                                          | metre/second               | float      |
+| dZ                | Satellite velocity on Z axis (ECEF)                                          | metre/second               | float      |
+| dX2               | Luni-solar acceleration on X axis (ECEF)                                     | metre/second²              | float      |
+| dY2               | Luni-solar acceleration on Y axis (ECEF)                                     | metre/second²              | float      |
+| dZ2               | Luni-solar acceleration on Z axis (ECEF)                                     | metre/second²              | float      |
 | clock_bias        | Satellite clock bias                                                         | metre                      | float      |
 | clock_drift       | Satellite clock drift                                                        | second/second              | float      |
 | clock_drift_rate  | Satellite clock drift rate                                                   | second/second²             | float      |
@@ -55,7 +55,7 @@ Ephemeris parameters that can be found in a rinex nav file.
 | healthy           | SV is reported healthy and can be used                                       |                            | bool       |
 
 ### BITS raw dataframe
-Raw measurements. Can also contain BITS ephemeris dataframe.
+Raw measurements. One line per measurement time and per satellite.
 
 | Name               | Description                                                                | Unit          | Type       |
 |--------------------|----------------------------------------------------------------------------|---------------|------------|
@@ -84,17 +84,17 @@ Raw measurements. Can also contain BITS ephemeris dataframe.
 | e_b                | Steering vector in the b direction                                         |               | float      |
 | elevation_rad      | SV elevation                                                               | radian        | float      |
 | azimuth_rad        | SV azimuth                                                                 | radian        | float      |
-| clock_corr_m       | Sum of the clock corrections to be applied to corr_pr_m                    | metre         | float      |
+| clock_corr_m       | Sum of the clock corrections applied to corr_pr_m                          | metre         | float      |
 | poly_clock_corr_m  | Polynomial clock correction                                                | metre         | float      |
 | relat_clock_corr_m | Relativistic clock correction                                              | metre         | float      |
 | tgd_clock_corr_m   | Time Group Delay (clock correction)                                        | metre         | float      |
-| atm_corr_m         | Sum of the atmospheric corrections to be applied to corr_pr_m              | metre         | float      |
+| atm_corr_m         | Sum of the atmospheric corrections applied to corr_pr_m                    | metre         | float      |
 | iono_corr_m        | Ionospheric correction                                                     | metre         | float      |
 | tropo_corr_m       | Tropospheric correction                                                    | metre         | float      |
-| residuals_m        | Pseudorange residuals after position estimation                            | metre         | float      |
+| residuals_m        | Pseudorange residual after position estimation                             | metre         | float      |
 
 ### BITS PVT dataframe
-Computed position speed and time.
+Position, velocity and time. One line per measurement time.
 
 | Name            | Description                                  | Unit           | Type        |
 |-----------------|----------------------------------------------|----------------|-------------|
