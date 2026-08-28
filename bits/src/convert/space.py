@@ -245,9 +245,9 @@ def ecef_to_enu(x_target: np.ndarray, y_target: np.ndarray, z_target: np.ndarray
     dy = y_target
     dz = z_target
     if with_translation:
-        dx -= x_ref
-        dy -= y_ref
-        dz -= z_ref
+        dx = x_target - x_ref
+        dy = y_target - y_ref
+        dz = z_target - z_ref
 
     # Rotation from ECEF to ENU
     sin_lat, cos_lat = np.sin(lat), np.cos(lat)
@@ -307,9 +307,9 @@ def enu_to_ecef(e: np.ndarray, n: np.ndarray, u: np.ndarray,
     y_target = dy
     z_target = dz
     if with_translation:
-        x_target += x_ref
-        y_target += y_ref
-        z_target += z_ref
+        x_target = x_target + x_ref
+        y_target = y_target + y_ref
+        z_target = z_target + z_ref
 
     return x_target, y_target, z_target
 
