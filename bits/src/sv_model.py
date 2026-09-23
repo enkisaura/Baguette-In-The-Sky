@@ -375,10 +375,10 @@ def get_sv_states(pd_gnss_raw: pd.DataFrame, pd_ephemeris: pd.DataFrame = None,
     # Get ephemeris
     pd_ephemeris = utils.get_ephemeris(pd_gnss_raw, pd_ephemeris, ephem_filepath, ignore_warnings=True)
 
-    kepler_ok = utils.check_dataframe(pd_ephemeris, kepler_ephemeris_required_columns)
-    state_ok = utils.check_dataframe(pd_ephemeris, state_ephemeris_required_columns)
+    kepler_ok = utils.check_dataframe(pd_ephemeris, kepler_ephemeris_required_columns, with_warning=False)
+    state_ok = utils.check_dataframe(pd_ephemeris, state_ephemeris_required_columns, with_warning=False)
 
-    if not kepler_ok or not state_ok:
+    if not kepler_ok and not state_ok:
         warnings.warn("Missing ephemeris data, cannot add SV states.")
         return pd_gnss_raw
 
