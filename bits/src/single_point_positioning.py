@@ -360,7 +360,7 @@ def window_approx_position_estimate(group_gnss_raw: pd.DataFrame, serie_gnss_app
         except PositionEstimationError as e:
             txt = f"Cannot compute speed at timestamp {serie_gnss_approx_pvt['time']}: {e}"
             warnings.warn(txt)
-            np_speed_estimate = np.full_like(np_rx_pos, np.nan, dtype=float)
+            np_speed_estimate = np.full_like(np_rx_pos, [[np.nan]], dtype=float)
             residuals_mps = np.full_like(pr_rate, np.nan, dtype=float)
             cov = np.full((np_geometry_matrix.shape[1], np_geometry_matrix.shape[1]), np.nan, dtype=float)
 
@@ -445,6 +445,15 @@ def gauss_newton(np_pr:np.ndarray, np_weight:np.ndarray, np_rx_pos:np.ndarray, n
 
     np_rx_pos = np.hstack([np_rx_pos, [0]*number_of_clock_bias]) # Add one clock bias estimate for each constellation
 
+    if len(np_rx_pos) > len(np_pr):
+        warnings.warn("Not enough satellites for Gauss-Newton")
+        np_rx_pos = np.full_like(np_rx_pos, np.nan, dtype=float)
+        np_geometry_matrix = np.full((len(np_pr), len(np_rx_pos)), np.nan, dtype=float)
+        cov = np.full((len(np_rx_pos), len(np_rx_pos)), np.nan, dtype=float)
+        dop = np.nan
+        residuals = np.full_like(np_pr, np.nan, dtype=float)
+
+        return np_rx_pos, np_geometry_matrix, cov, dop, residuals
 
     for i in range(max_iteration):
         # Compute geometry matrix
