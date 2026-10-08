@@ -65,6 +65,8 @@ Raw measurements. One line per measurement time and per satellite.
 | time               | Receiver timestamp                                                         |               | Datetime64 |
 | corr_time          | Corrected receiver timestamp                                               |               | Datetime64 |
 | pr_m               | Pseudorange                                                                | metre         | float      |
+| cp_N               | Carrier phase                                                              | cycle         | float      |
+| cp_m               | Carrier phase                                                              | metre         | float      |
 | corr_pr_m          | Corrected pseudorange                                                      | metre         | float      |
 | pr_rate_mps        | Pseudorange rate                                                           | metre/second  | float      |
 | doppler_hz         | Doppler shift                                                              | 1/second      | float      |

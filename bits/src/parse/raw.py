@@ -83,6 +83,10 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
     # Get pseudorange
     obs_df["pr_m"] = obs_df["C1C"].combine_first(obs_df["C2I"])
 
+    # Get carrier phase
+    obs_df["cp_N"] = obs_df["L1C"].combine_first(obs_df["L2I"])
+    obs_df["cp_m"] = obs_df["cp_N"] * const.C / obs_df["frequency_hz"]
+
     # Get doppler and pseudorange rate
     obs_df["doppler_hz"] = obs_df["D1C"].combine_first(obs_df["D2I"])
     obs_df["pr_rate_mps"] = convert.other.doppler_to_pr_rate(obs_df["doppler_hz"], obs_df["frequency_hz"])
@@ -91,7 +95,7 @@ def rinex(filepath: str|Path) -> pd.DataFrame:
     obs_df["CN0"] = obs_df["S1C"].combine_first(obs_df["S2I"])
 
     # Clean up
-    obs_df = obs_df[["time", "gnss_id", "sv_id", "prn_id", "pr_m", "doppler_hz", "pr_rate_mps", "CN0", "frequency_hz"]]
+    obs_df = obs_df[["time", "gnss_id", "sv_id", "prn_id", "pr_m", "cp_N", "cp_m", "doppler_hz", "pr_rate_mps", "CN0", "frequency_hz"]]
     obs_df = obs_df.dropna()
     obs_df = obs_df.reset_index(drop=True)
 
